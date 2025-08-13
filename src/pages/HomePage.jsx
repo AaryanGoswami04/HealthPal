@@ -1,0 +1,256 @@
+import React, { useState, useEffect } from 'react';
+import { signOut } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { auth, db } from '../firebase';
+import { 
+  Calendar, User, Stethoscope, 
+  Activity, Search, Bell, Settings, LogOut, Video, ClipboardList
+} from 'lucide-react';
+import AppointmentSession from './AppointmentSession';
+import SettingsPage from './SettingsPage';
+import HealthRecordPage from './HealthRecordPage';
+import BookAppointmentPage from './BookAppointmentPage';
+import ScheduleAppointmentPage from './ScheduleAppointmentPage';
+// Import your background image
+import medicalBackground from '../assets/medical-background.jpg';
+
+// --- MOCK DATA SETUP ---
+const mockAppointment = {
+  id: "mock_appointment_123",
+  patientName: "Jane Doe",
+  doctorName: "Dr. Alan Smith",
+  patientId: "patient_mock_id",
+  doctorId: "doctor_mock_id",
+  appointmentTime: "11:00 AM",
+  problem: "Experiencing sharp pain in the lower back, especially after sitting for long periods. The pain started a week ago.",
+  diagnosis: "",
+  status: "upcoming"
+};
+
+const setupMockAppointment = async () => {
+  const appointmentRef = doc(db, "appointments", mockAppointment.id);
+  const docSnap = await getDoc(appointmentRef);
+  if (!docSnap.exists()) {
+    await setDoc(appointmentRef, mockAppointment);
+  }
+};
+// --- END MOCK DATA SETUP ---
+
+
+const HomePage = () => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [userProfile, setUserProfile] = useState(null);
+  const [view, setView] = useState('home'); // 'home', 'session', 'settings', 'records', 'book-appointment', 'schedule-appointment'
+  const user = auth.currentUser; 
+
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      if (user) {
+        const userDocRef = doc(db, "users", user.uid);
+        const docSnap = await getDoc(userDocRef);
+        if (docSnap.exists()) {
+          setUserProfile({ ...docSnap.data(), uid: user.uid });
+        } else {
+          console.log("No such user profile!");
+        }
+      }
+    };
+
+    fetchUserProfile();
+    setupMockAppointment();
+  }, [user]);
+
+  const handleLogout = () => {
+    signOut(auth).catch(error => console.error("Logout Error:", error));
+  };
+  
+  const handleNavigate = (newView) => {
+    console.log(`Navigating to: ${newView}`); // Debug log
+    setView(newView);
+  };
+
+  const handleProfileUpdate = (newName) => {
+    setUserProfile(currentProfile => ({
+      ...currentProfile,
+      name: newName
+    }));
+  };
+
+  // Debug: Log current view
+  console.log(`Current view: ${view}`);
+
+  if (!userProfile) {
+      return <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50">Loading...</div>
+  }
+
+  // --- View Router ---
+  if (view === 'session') {
+      return <AppointmentSession userProfile={userProfile} onEndSession={() => handleNavigate('home')} />;
+  }
+  if (view === 'settings') {
+      return <SettingsPage userProfile={userProfile} onBack={() => handleNavigate('home')} onProfileUpdated={handleProfileUpdate} />;
+  }
+  if (view === 'records') {
+      return <HealthRecordPage userProfile={userProfile} onBack={() => handleNavigate('home')} />;
+  }
+  if (view === 'book-appointment') {
+      console.log('Rendering BookAppointmentPage'); // Debug log
+      return <BookAppointmentPage userProfile={userProfile} onBack={() => handleNavigate('home')} />;
+  }
+  if (view === 'schedule-appointment') {
+      console.log('Rendering ScheduleAppointmentPage'); // Debug log
+      return <ScheduleAppointmentPage userProfile={userProfile} onBack={() => handleNavigate('home')} />;
+  }
+  // --- End View Router ---
+
+  const isDoctor = userProfile.role === 'doctor';
+  // Updated quick actions to have a white background for the doctor role as well
+  const quickActions = isDoctor 
+    ? [
+        { id: 'schedule', icon: Calendar, label: 'Appointment Requests', color: 'bg-white/70 border border-gray-200 text-gray-800 hover:bg-white' },
+        { id: 'records', icon: ClipboardList, label: 'Patient Records', color: 'bg-white/70 border border-gray-200 text-gray-800 hover:bg-white' }
+      ]
+    : [
+        { id: 'book', icon: Calendar, label: 'Book Appointment', color: 'bg-white/70 border border-gray-200 text-gray-800 hover:bg-white' },
+        { id: 'records', icon: Activity, label: 'Health Records', color: 'bg-white/70 border border-gray-200 text-gray-800 hover:bg-white' }
+      ];
+  const searchPlaceholder = isDoctor ? "Search patients..." : "Search doctors...";
+  const welcomeMessage = isDoctor ? "Manage your patients and schedule." : "Let's take care of your health today.";
+
+  const handleQuickAction = (actionId) => {
+    console.log(`Quick action clicked: ${actionId}`); // Debug log
+    
+    switch (actionId) {
+      case 'records':
+        handleNavigate('records');
+        break;
+      case 'book':
+        handleNavigate('book-appointment');
+        break;
+      case 'schedule':
+        handleNavigate('schedule-appointment');
+        break;
+      default:
+        console.log(`Unhandled action: ${actionId}`);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50 relative">
+      {/* Background Image - Only for main content area, not header */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-50 z-0"
+        style={{
+          backgroundImage: `url(${medicalBackground})`,
+          top: '80px' // Start below the header (header height is h-20 = 80px)
+        }}
+      ></div>
+      
+      {/* Content Overlay */}
+      <div className="relative z-10">
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-xl shadow-lg border-b border-white/20 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-20">
+            <div className="flex items-center">
+                <div className="flex-shrink-0 flex items-center">
+                    <div className="w-12 h-12 bg-gradient-to-r from-blue-600 via-teal-600 to-emerald-600 rounded-2xl flex items-center justify-center shadow-lg transform hover:scale-105 transition-transform">
+                      <Stethoscope className="w-7 h-7 text-white" />
+                    </div>
+                    <div className="ml-4">
+                        <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 via-teal-600 to-emerald-600 bg-clip-text text-transparent">
+                            HealthPal
+                        </span>
+                        <div className="w-12 h-0.5 bg-gradient-to-r from-blue-600 to-teal-600"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="flex items-center">
+                <button className="p-3 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border border-white/20 hover:bg-white transition-all duration-300 group mr-3">
+                    <Bell className="w-5 h-5 text-gray-600 group-hover:text-blue-600"/>
+                </button>
+                <div className="relative group">
+                    <button onClick={() => handleNavigate('settings')} className="flex items-center space-x-3 p-2 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border border-white/20 hover:bg-white transition-all duration-300">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-blue-500 to-teal-500 flex items-center justify-center">
+                            <User className="w-5 h-5 text-white" />
+                        </div>
+                        <div className="text-left hidden sm:block">
+                            <p className="text-sm font-semibold text-gray-800">{userProfile.name}</p>
+                            <p className="text-xs text-gray-500 capitalize">{userProfile.role}</p>
+                        </div>
+                    </button>
+                </div>
+                <button onClick={handleLogout} className="ml-4 p-3 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border border-white/20 hover:bg-red-50 transition-all duration-300 group">
+                    <LogOut className="w-5 h-5 text-gray-600 group-hover:text-red-600"/>
+                </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {/* Welcome Message */}
+        <div className="mb-12">
+          <h1 className="text-4xl font-bold text-gray-800">
+            Welcome back, <span className="text-gray-800">{userProfile.name.split(' ')[0]}</span>!
+          </h1>
+          <p className="text-lg text-gray-600 mt-2">{welcomeMessage}</p>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+          {quickActions.map(action => (
+            <button 
+              key={action.id} 
+              onClick={() => handleQuickAction(action.id)}
+              className={`p-6 rounded-3xl shadow-xl transform hover:-translate-y-2 transition-transform duration-300 flex flex-col justify-between ${action.color}`}
+            >
+              <div className="flex justify-between items-start">
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
+                  // Updated the icon background for doctor to match patient's card
+                  isDoctor ? 'bg-gradient-to-r from-blue-500 to-teal-500' : 'bg-gradient-to-r from-blue-500 to-teal-500'
+                }`}>
+                  <action.icon className={`w-7 h-7 text-white`} />
+                </div>
+              </div>
+              {/* Updated the text color for doctor to match patient's card */}
+              <p className={`text-xl font-semibold mt-12 text-gray-800`}>{action.label}</p>
+            </button>
+          ))}
+        </div>
+
+        {/* Upcoming Appointments */}
+        <div className="bg-white/70 backdrop-blur-xl rounded-3xl p-6 sm:p-8 border border-white/20 shadow-xl">
+          <h2 className="text-2xl font-bold text-gray-800 mb-6">Upcoming Appointments</h2>
+          {/* Example Appointment - Replace with dynamic data */}
+          <div className="bg-white/80 p-5 rounded-2xl border-2 border-blue-200 shadow-lg flex items-center justify-between">
+            <div className="flex items-center">
+              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-teal-500 rounded-xl flex items-center justify-center mr-5">
+                <User className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <p className="font-bold text-gray-800">{isDoctor ? mockAppointment.patientName : mockAppointment.doctorName}</p>
+                <p className="text-sm text-gray-600">{isDoctor ? 'General Checkup' : mockAppointment.doctorName.split(' ')[2] + ' Department'}</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="font-semibold text-gray-800">{mockAppointment.appointmentTime}</p>
+              <p className="text-sm text-gray-500">Today, August 13</p>
+            </div>
+            <button 
+              onClick={() => handleNavigate('session')}
+              className="ml-8 py-3 px-6 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold rounded-xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center"
+            >
+              <Video className="w-5 h-5 mr-2" />
+              Join Call
+            </button>
+          </div>
+        </div>
+      </main>
+      </div>
+    </div>
+  );
+};
+
+export default HomePage;
