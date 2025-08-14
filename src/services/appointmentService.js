@@ -186,6 +186,7 @@ export const approveAppointmentRequest = async (requestId, requestData) => {
     const confirmedAppointment = {
       ...requestData,
       status: 'upcoming',
+      sessionStatus: 'waiting', // Initialize session status
       createdAt: new Date(),
     };
     await addDoc(collection(db, "appointments"), confirmedAppointment);
@@ -209,6 +210,56 @@ export const rejectAppointmentRequest = async (requestId) => {
     console.log(`Rejected and deleted request ${requestId}.`);
   } catch (error) {
     console.error("Error rejecting appointment request:", error);
+    throw error;
+  }
+};
+
+/**
+ * Fetches appointments for a specific user (doctor or patient)
+ * @param {string} userId - The user's ID
+ * @param {string} userRole - The user's role ('doctor' or 'patient')
+ * @param {string} status - The appointment status ('upcoming', 'completed', 'cancelled')
+ * @returns {Array} Array of appointment objects
+ */
+export const getAppointments = async (userId, userRole, status = 'upcoming') => {
+  try {
+    let q;
+    
+    if (userRole === 'doctor') {
+      q = query(
+        collection(db, "appointments"),
+        where("doctorId", "==", userId),
+        where("status", "==", status)
+      );
+    } else {
+      q = query(
+        collection(db, "appointments"),
+        where("patientId", "==", userId),
+        where("status", "==", status)
+      );
+    }
+    
+    const querySnapshot = await getDocs(q);
+    const appointments = [];
+    
+    querySnapshot.forEach((doc) => {
+      appointments.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    // Sort appointments by date and time
+    appointments.sort((a, b) => {
+      const dateA = new Date(`${a.appointmentDate} ${a.appointmentTime}`);
+      const dateB = new Date(`${b.appointmentDate} ${b.appointmentTime}`);
+      return dateA - dateB;
+    });
+    
+    console.log(`Found ${appointments.length} ${status} appointments for ${userRole} ${userId}`);
+    return appointments;
+  } catch (error) {
+    console.error("Error fetching appointments:", error);
     throw error;
   }
 };

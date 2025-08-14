@@ -1,163 +1,471 @@
-import React, { useState, useEffect } from 'react';
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  User,
+  Stethoscope,
+  Send,
+  PhoneOff,
+  MessageCircle,
+  Clock,
+  AlertCircle
+} from 'lucide-react';
+import {
+  doc,
+  updateDoc,
+  onSnapshot,
+  collection,
+  addDoc,
+  query,
+  orderBy,
+  deleteDoc,
+  serverTimestamp,
+  writeBatch
+} from "firebase/firestore";
 import { db } from '../firebase';
-import { User, Stethoscope, FileText, Send } from 'lucide-react';
 
-// This component simulates being on a specific appointment page.
-// In a real app, you'd pass an appointmentId as a prop.
-// For this example, we'll use a hardcoded ID for demonstration.
-const APPOINTMENT_ID = "mock_appointment_123";
+// --- Inlined AppointmentSessionService ---
+// This class is included directly to resolve the module import error.
+class AppointmentSessionService {
+  constructor(appointmentId) {
+    this.appointmentId = appointmentId;
+    this.appointmentRef = doc(db, "appointments", appointmentId);
+    this.messagesRef = collection(db, "appointments", appointmentId, "messages");
+    this.unsubscribeAppointment = null;
+    this.unsubscribeMessages = null;
+  }
 
-const AppointmentSession = ({ userProfile, onEndSession }) => {
+  // Start the appointment session
+  async startSession(doctorId) {
+    try {
+      await updateDoc(this.appointmentRef, {
+        sessionStatus: 'active',
+        sessionStartTime: serverTimestamp(),
+        sessionDuration: 10000, // 10 seconds for testing
+        startedBy: doctorId
+      });
+      return { success: true };
+    } catch (error) {
+      console.error("Error starting session:", error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // End the appointment session and clean up
+  async endSession(userId, reason = 'completed') {
+    try {
+      const batch = writeBatch(db);
+      batch.update(this.appointmentRef, {
+        sessionStatus: 'ended',
+        sessionEndTime: serverTimestamp(),
+        endedBy: userId,
+        endReason: reason
+      });
+      batch.delete(this.appointmentRef);
+      await batch.commit();
+      return { success: true };
+    } catch (error) {
+      console.error("Error ending session:", error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Send a message in the chat
+  async sendMessage(senderId, senderName, senderRole, messageText) {
+    try {
+      await addDoc(this.messagesRef, {
+        senderId,
+        senderName,
+        senderRole,
+        message: messageText,
+        timestamp: serverTimestamp(),
+        createdAt: new Date().toISOString()
+      });
+      return { success: true };
+    } catch (error) {
+      console.error("Error sending message:", error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Listen for appointment updates
+  subscribeToAppointment(callback) {
+    this.unsubscribeAppointment = onSnapshot(this.appointmentRef,
+      (doc) => {
+        if (doc.exists()) {
+          callback({ exists: true, data: doc.data() });
+        } else {
+          callback({ exists: false, data: null });
+        }
+      },
+      (error) => {
+        console.error("Error listening to appointment:", error);
+        callback({ exists: false, data: null, error: error.message });
+      }
+    );
+  }
+
+  // Listen for chat messages
+  subscribeToMessages(callback) {
+    const messagesQuery = query(this.messagesRef, orderBy("createdAt", "asc"));
+    this.unsubscribeMessages = onSnapshot(messagesQuery,
+      (snapshot) => {
+        const messages = [];
+        snapshot.forEach((doc) => {
+          messages.push({ id: doc.id, ...doc.data() });
+        });
+        callback(messages);
+      },
+      (error) => {
+        console.error("Error listening to messages:", error);
+        callback([]);
+      }
+    );
+  }
+
+  // Clean up listeners
+  cleanup() {
+    if (this.unsubscribeAppointment) {
+      this.unsubscribeAppointment();
+      this.unsubscribeAppointment = null;
+    }
+    if (this.unsubscribeMessages) {
+      this.unsubscribeMessages();
+      this.unsubscribeMessages = null;
+    }
+  }
+}
+// --- End of Inlined AppointmentSessionService ---
+
+
+// This component handles the appointment session with real-time chat
+const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const [appointment, setAppointment] = useState(null);
-  const [diagnosis, setDiagnosis] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [sessionStatus, setSessionStatus] = useState('waiting'); // 'waiting', 'active', 'ended'
+  const [timeRemaining, setTimeRemaining] = useState(10); // Changed to 10 seconds
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Listen for real-time updates on the appointment document
+  const messagesEndRef = useRef(null);
+  const sessionServiceRef = useRef(null);
+  const timerRef = useRef(null);
+  const countdownRef = useRef(null);
+
+  const isDoctor = userProfile.role === 'doctor';
+
   useEffect(() => {
-    const appointmentRef = doc(db, "appointments", APPOINTMENT_ID);
-    
-    const unsubscribe = onSnapshot(appointmentRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
+    // Ensure we have a valid appointmentId
+    if (!appointmentId) {
+      setError('No appointment ID provided');
+      setIsLoading(false);
+      return;
+    }
+
+    // Initialize session service
+    sessionServiceRef.current = new AppointmentSessionService(appointmentId);
+
+    // Subscribe to appointment updates
+    sessionServiceRef.current.subscribeToAppointment((appointmentData) => {
+      if (appointmentData.exists) {
+        const data = appointmentData.data;
         setAppointment(data);
-        // If the doctor has already submitted a diagnosis, populate the textarea
-        if(data.diagnosis) {
-          setDiagnosis(data.diagnosis);
+        setSessionStatus(data.sessionStatus || 'waiting');
+
+        // If session becomes active, start the countdown
+        if (data.sessionStatus === 'active' && !countdownRef.current) {
+          startCountdown();
         }
-        // If the appointment status is 'completed', end the session for the patient
-        if (userProfile.role === 'patient' && data.status === 'completed') {
-            setTimeout(() => onEndSession(), 5000); // Wait 5s before redirecting
+
+        // If session ends, redirect after a delay
+        if (data.sessionStatus === 'ended') {
+          setTimeout(() => {
+            onEndSession();
+          }, 3000);
         }
+      } else if (appointmentData.error) {
+        setError(appointmentData.error);
       } else {
-        setError("Appointment not found. It may have been canceled.");
+        // Appointment was deleted, which means the session ended. Redirect.
+        setTimeout(() => {
+          onEndSession();
+        }, 1000);
       }
       setIsLoading(false);
     });
 
-    // Cleanup listener on component unmount
-    return () => unsubscribe();
-  }, [userProfile.role, onEndSession]);
+    // Subscribe to messages
+    sessionServiceRef.current.subscribeToMessages((messagesList) => {
+      setMessages(messagesList);
+    });
 
-  // Function for the doctor to submit the diagnosis
-  const handleDiagnosisSubmit = async () => {
-    if (diagnosis.trim() === '') {
-      alert("Please enter a diagnosis.");
-      return;
+    // Cleanup on unmount
+    return () => {
+      if (sessionServiceRef.current) {
+        sessionServiceRef.current.cleanup();
+      }
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+      }
+    };
+  }, [appointmentId, onEndSession]);
+
+  // New useEffect to automatically start the session for the doctor
+  useEffect(() => {
+    if (isDoctor && appointment && appointment.sessionStatus === 'waiting') {
+        const start = async () => {
+            if (sessionServiceRef.current) {
+                await sessionServiceRef.current.startSession(userProfile.uid);
+            }
+        };
+        start();
     }
-    const appointmentRef = doc(db, "appointments", APPOINTMENT_ID);
-    try {
-      await updateDoc(appointmentRef, {
-        diagnosis: diagnosis,
-        status: 'completed' // Mark the appointment as completed
+  }, [isDoctor, appointment, userProfile.uid]);
+
+
+  // Auto-scroll to bottom of messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const startCountdown = () => {
+    setTimeRemaining(10); // Set initial time to 10
+    countdownRef.current = setInterval(() => {
+      setTimeRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdownRef.current);
+          return 0;
+        }
+        return prev - 1;
       });
-      // The doctor can also be redirected after submission
-      setTimeout(() => onEndSession(), 3000);
-    } catch (error) {
-      console.error("Error updating diagnosis: ", error);
-      alert("Failed to submit diagnosis.");
+    }, 1000);
+
+    // Set timer to auto-end session after 10 seconds
+    timerRef.current = setTimeout(() => {
+      handleEndSession('time_up');
+    }, 10000);
+  };
+
+  const handleEndSession = async (reason = 'manual') => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+
+    if (sessionServiceRef.current) {
+        const result = await sessionServiceRef.current.endSession(userProfile.uid, reason);
+        if (!result.success) {
+          alert('Failed to end session: ' + result.error);
+        }
     }
   };
 
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (newMessage.trim() === '' || sessionStatus !== 'active') return;
+
+    const result = await sessionServiceRef.current.sendMessage(
+      userProfile.uid,
+      userProfile.name,
+      userProfile.role,
+      newMessage.trim()
+    );
+
+    if (result.success) {
+      setNewMessage('');
+    } else {
+      alert('Failed to send message: ' + result.error);
+    }
+  };
+
+  const formatTime = (seconds) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  };
+
   if (isLoading) {
-    return <div className="text-center p-10">Loading session...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-xl text-gray-600">Loading session...</p>
+        </div>
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="text-center p-10 text-red-500">{error}</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50">
+        <div className="text-center p-8 bg-red-50 rounded-3xl border border-red-200">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <p className="text-xl text-red-600">{error}</p>
+          <button
+            onClick={onEndSession}
+            className="mt-4 px-6 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
   }
 
-  // Determine the view based on the user's role
-  const isDoctor = userProfile.role === 'doctor';
-
   return (
-    <div className="max-w-4xl mx-auto p-8 bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20">
-      <div className="text-center mb-8">
-        <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 via-teal-600 to-emerald-600 bg-clip-text text-transparent">
-          Live Appointment
-        </h1>
-        <p className="text-gray-600">Session in progress...</p>
-        <div className="w-16 h-1 bg-gradient-to-r from-blue-600 to-teal-600 mx-auto mt-3"></div>
-      </div>
-
-      {/* Shared Appointment Info */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 text-sm">
-        <div className="bg-white/50 p-4 rounded-2xl shadow-lg border border-white/20 flex items-center">
-            <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-teal-500 rounded-xl flex items-center justify-center mr-4">
-                <User className="w-5 h-5 text-white" />
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50 p-4">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="bg-white/80 backdrop-blur-xl rounded-3xl p-6 shadow-xl border border-white/20 mb-6">
+          <div className="flex justify-between items-center">
             <div>
-                <p className="font-semibold text-gray-500">Patient</p>
-                <p className="text-gray-800 font-bold">{appointment.patientName}</p>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 via-teal-600 to-emerald-600 bg-clip-text text-transparent">
+                Appointment Session
+              </h1>
+              <div className="flex items-center mt-2 space-x-4">
+                <div className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                  sessionStatus === 'waiting' ? 'bg-yellow-100 text-yellow-800' :
+                  sessionStatus === 'active' ? 'bg-green-100 text-green-800' :
+                  'bg-red-100 text-red-800'
+                }`}>
+                  {sessionStatus === 'waiting' ? 'Starting Session...' :
+                   sessionStatus === 'active' ? 'Session Active' : 'Session Ended'}
+                </div>
+                {sessionStatus === 'active' && (
+                  <div className="flex items-center text-blue-600">
+                    <Clock className="w-4 h-4 mr-1" />
+                    <span className="font-semibold">{formatTime(timeRemaining)}</span>
+                  </div>
+                )}
+              </div>
             </div>
-        </div>
-        <div className="bg-white/50 p-4 rounded-2xl shadow-lg border border-white/20 flex items-center">
-            <div className="w-10 h-10 bg-gradient-to-r from-teal-500 to-emerald-500 rounded-xl flex items-center justify-center mr-4">
-                <Stethoscope className="w-5 h-5 text-white" />
-            </div>
-            <div>
-                <p className="font-semibold text-gray-500">Doctor</p>
-                <p className="text-gray-800 font-bold">{appointment.doctorName}</p>
-            </div>
-        </div>
-      </div>
 
-      {/* Patient's Stated Problem */}
-      <div className="mb-8">
-        <h3 className="text-lg font-semibold text-gray-800 mb-2 flex items-center">
-            <FileText className="w-5 h-5 mr-2 text-blue-600"/>
-            Patient's Health Concern
-        </h3>
-        <p className="bg-gray-100 p-4 rounded-2xl text-gray-700 border border-gray-200">
-            {appointment.problem}
-        </p>
-      </div>
+            <div className="flex items-center space-x-4">
+              {sessionStatus === 'active' && (
+                <button
+                  onClick={() => handleEndSession('manual')}
+                  className="px-6 py-3 bg-gradient-to-r from-red-600 to-pink-600 text-white rounded-xl hover:shadow-lg transition-all duration-300 flex items-center"
+                >
+                  <PhoneOff className="w-5 h-5 mr-2" />
+                  End Session
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
 
-      {/* Diagnosis Section (Varies by role) */}
-      <div>
-        <h3 className="text-lg font-semibold text-gray-800 mb-2 flex items-center">
-            <FileText className="w-5 h-5 mr-2 text-teal-600"/>
-            Doctor's Diagnosis
-        </h3>
-        {isDoctor ? (
-            // Doctor's View: Textarea to input diagnosis
-            <div className="space-y-4">
-                 <textarea
-                    value={diagnosis}
-                    onChange={(e) => setDiagnosis(e.target.value)}
-                    placeholder="Enter your diagnosis here..."
-                    className="w-full p-4 border-2 border-gray-200 rounded-2xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 bg-white/70"
-                    rows="5"
-                    disabled={appointment.status === 'completed'}
-                />
-                {appointment.status !== 'completed' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Appointment Details */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* Participants */}
+            <div className="bg-white/80 backdrop-blur-xl rounded-3xl p-6 shadow-xl border border-white/20">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Participants</h3>
+              <div className="space-y-4">
+                <div className="flex items-center">
+                  <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-teal-500 rounded-xl flex items-center justify-center mr-4">
+                    <User className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-800">{appointment?.patientName}</p>
+                    <p className="text-sm text-gray-600">Patient</p>
+                  </div>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-12 h-12 bg-gradient-to-r from-teal-500 to-emerald-500 rounded-xl flex items-center justify-center mr-4">
+                    <Stethoscope className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-800">{appointment?.doctorName}</p>
+                    <p className="text-sm text-gray-600">Doctor</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Chat Section */}
+          <div className="lg:col-span-2">
+            <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl border border-white/20 h-[600px] flex flex-col">
+              {/* Chat Header */}
+              <div className="p-6 border-b border-gray-200">
+                <h3 className="text-xl font-semibold text-gray-800 flex items-center">
+                  <MessageCircle className="w-6 h-6 mr-2 text-blue-600" />
+                  Session Chat
+                </h3>
+                {sessionStatus === 'waiting' && (
+                  <p className="text-sm text-gray-500 mt-1">
+                    {isDoctor ? 'Starting the session...' : 'Waiting for doctor to start the session...'}
+                  </p>
+                )}
+              </div>
+
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {sessionStatus === 'waiting' && (
+                  <div className="text-center text-gray-500 py-8">
+                    <MessageCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                    <p>Chat will be available once the session starts</p>
+                  </div>
+                )}
+
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex ${message.senderId === userProfile.uid ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl ${
+                      message.senderId === userProfile.uid
+                        ? 'bg-gradient-to-r from-blue-600 to-teal-600 text-white'
+                        : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      <div className="flex items-center mb-1">
+                        <span className="text-xs font-semibold opacity-75">
+                          {message.senderName} ({message.senderRole})
+                        </span>
+                      </div>
+                      <p className="text-sm">{message.message}</p>
+                    </div>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Message Input */}
+              {sessionStatus === 'active' && (
+                <div className="p-6 border-t border-gray-200">
+                  <form onSubmit={handleSendMessage} className="flex space-x-4">
+                    <input
+                      type="text"
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      placeholder="Type your message..."
+                      className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-2xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300"
+                    />
                     <button
-                        onClick={handleDiagnosisSubmit}
-                        className="w-full py-3 px-6 rounded-2xl text-white font-semibold bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 transform hover:scale-105 transition-all duration-300 shadow-xl flex items-center justify-center"
+                      type="submit"
+                      disabled={newMessage.trim() === ''}
+                      className="px-6 py-3 bg-gradient-to-r from-blue-600 to-teal-600 text-white rounded-2xl hover:shadow-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
                     >
-                        Submit Diagnosis & End Session
-                        <Send className="ml-2 w-4 h-4" />
+                      <Send className="w-5 h-5" />
                     </button>
-                ) : (
-                    <p className="text-center text-green-600 font-semibold">Diagnosis submitted. Session has ended.</p>
-                )}
+                  </form>
+                </div>
+              )}
+
+              {sessionStatus === 'ended' && (
+                <div className="p-6 border-t border-gray-200 text-center">
+                  <p className="text-gray-600">Session has ended. Redirecting...</p>
+                </div>
+              )}
             </div>
-        ) : (
-            // Patient's View: Display diagnosis or waiting message
-            <div className="bg-gray-100 p-4 rounded-2xl text-gray-700 min-h-[100px] border border-gray-200">
-                {appointment.diagnosis ? (
-                    <>
-                        <p>{appointment.diagnosis}</p>
-                        {appointment.status === 'completed' && (
-                             <p className="text-sm text-green-600 mt-4 font-semibold">The session has ended. You will be redirected shortly.</p>
-                        )}
-                    </>
-                ) : (
-                    <p className="text-gray-500 animate-pulse">Waiting for the doctor to submit a diagnosis...</p>
-                )}
-            </div>
-        )}
+          </div>
+        </div>
       </div>
     </div>
   );

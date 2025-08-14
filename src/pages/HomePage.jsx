@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { signOut } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, onSnapshot } from "firebase/firestore";
 import { auth, db } from '../firebase';
 import { 
   Calendar, User, Stethoscope, 
@@ -9,38 +9,19 @@ import {
 import AppointmentSession from './AppointmentSession';
 import SettingsPage from './SettingsPage';
 import HealthRecordPage from './HealthRecordPage';
+import DoctorPatientRecordsPage from './DoctorPatientRecordsPage';
 import BookAppointmentPage from './BookAppointmentPage';
 import ScheduleAppointmentPage from './ScheduleAppointmentPage';
 // Import your background image
 import medicalBackground from '../assets/medical-background.jpg';
 
-// --- MOCK DATA SETUP ---
-const mockAppointment = {
-  id: "mock_appointment_123",
-  patientName: "Jane Doe",
-  doctorName: "Dr. Alan Smith",
-  patientId: "patient_mock_id",
-  doctorId: "doctor_mock_id",
-  appointmentTime: "11:00 AM",
-  problem: "Experiencing sharp pain in the lower back, especially after sitting for long periods. The pain started a week ago.",
-  diagnosis: "",
-  status: "upcoming"
-};
-
-const setupMockAppointment = async () => {
-  const appointmentRef = doc(db, "appointments", mockAppointment.id);
-  const docSnap = await getDoc(appointmentRef);
-  if (!docSnap.exists()) {
-    await setDoc(appointmentRef, mockAppointment);
-  }
-};
-// --- END MOCK DATA SETUP ---
-
-
 const HomePage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [userProfile, setUserProfile] = useState(null);
   const [view, setView] = useState('home'); // 'home', 'session', 'settings', 'records', 'book-appointment', 'schedule-appointment'
+  const [appointments, setAppointments] = useState([]); // Changed from single appointmentData to appointments array
+  const [currentAppointmentId, setCurrentAppointmentId] = useState(null); // Track which appointment session to join
+  const [loading, setLoading] = useState(true);
   const user = auth.currentUser; 
 
   useEffect(() => {
@@ -57,8 +38,59 @@ const HomePage = () => {
     };
 
     fetchUserProfile();
-    setupMockAppointment();
   }, [user]);
+
+  // Load real appointments from Firebase
+  useEffect(() => {
+    if (!userProfile) return;
+
+    let appointmentsQuery;
+    
+    if (userProfile.role === 'doctor') {
+      // For doctors, get appointments where they are the doctor
+      appointmentsQuery = query(
+        collection(db, "appointments"),
+        where("doctorId", "==", userProfile.uid),
+        where("status", "==", "upcoming")
+      );
+    } else {
+      // For patients, get appointments where they are the patient
+      appointmentsQuery = query(
+        collection(db, "appointments"),
+        where("patientId", "==", userProfile.uid),
+        where("status", "==", "upcoming")
+      );
+    }
+
+    // Listen for real-time updates to appointments
+    const unsubscribe = onSnapshot(appointmentsQuery, 
+      (snapshot) => {
+        const appointmentsList = [];
+        snapshot.forEach((doc) => {
+          appointmentsList.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+        
+        // Sort appointments by date and time
+        appointmentsList.sort((a, b) => {
+          const dateA = new Date(`${a.appointmentDate} ${a.appointmentTime}`);
+          const dateB = new Date(`${b.appointmentDate} ${b.appointmentTime}`);
+          return dateA - dateB;
+        });
+        
+        setAppointments(appointmentsList);
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error fetching appointments:", error);
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [userProfile]);
 
   const handleLogout = () => {
     signOut(auth).catch(error => console.error("Logout Error:", error));
@@ -67,6 +99,11 @@ const HomePage = () => {
   const handleNavigate = (newView) => {
     console.log(`Navigating to: ${newView}`); // Debug log
     setView(newView);
+  };
+
+  const handleJoinSession = (appointmentId) => {
+    setCurrentAppointmentId(appointmentId);
+    handleNavigate('session');
   };
 
   const handleProfileUpdate = (newName) => {
@@ -79,19 +116,39 @@ const HomePage = () => {
   // Debug: Log current view
   console.log(`Current view: ${view}`);
 
-  if (!userProfile) {
-      return <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50">Loading...</div>
+  if (!userProfile || loading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-xl text-gray-600">Loading...</p>
+          </div>
+        </div>
+      );
   }
 
   // --- View Router ---
   if (view === 'session') {
-      return <AppointmentSession userProfile={userProfile} onEndSession={() => handleNavigate('home')} />;
+      return (
+        <AppointmentSession 
+          userProfile={userProfile} 
+          appointmentId={currentAppointmentId}
+          onEndSession={() => {
+            setCurrentAppointmentId(null);
+            handleNavigate('home');
+          }} 
+        />
+      );
   }
   if (view === 'settings') {
       return <SettingsPage userProfile={userProfile} onBack={() => handleNavigate('home')} onProfileUpdated={handleProfileUpdate} />;
   }
   if (view === 'records') {
-      return <HealthRecordPage userProfile={userProfile} onBack={() => handleNavigate('home')} />;
+      if (userProfile.role === 'doctor') {
+          return <DoctorPatientRecordsPage userProfile={userProfile} onBack={() => handleNavigate('home')} />;
+      } else {
+          return <HealthRecordPage userProfile={userProfile} onBack={() => handleNavigate('home')} />;
+      }
   }
   if (view === 'book-appointment') {
       console.log('Rendering BookAppointmentPage'); // Debug log
@@ -132,6 +189,57 @@ const HomePage = () => {
         break;
       default:
         console.log(`Unhandled action: ${actionId}`);
+    }
+  };
+
+  // Helper function to format date for display
+  const formatAppointmentDate = (dateString) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    if (date.toDateString() === today.toDateString()) {
+      return 'Today';
+    } else if (date.toDateString() === tomorrow.toDateString()) {
+      return 'Tomorrow';
+    } else {
+      return date.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric',
+        weekday: 'short'
+      });
+    }
+  };
+
+  // Simplified: Doctor can always start/join, Patient can always join
+  const isJoinButtonEnabled = (appointment) => {
+    return true; // Both doctor and patient can always join
+  };
+
+  // Get button text and styling for each appointment
+  const getJoinButtonProps = (appointment) => {
+    if (isDoctor) {
+      if (appointment.sessionStatus === 'active') {
+        return {
+          text: 'Join Session',
+          icon: Video,
+          className: 'py-3 px-6 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold rounded-xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center'
+        };
+      } else {
+        return {
+          text: 'Start Session',
+          icon: Video,
+          className: 'py-3 px-6 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center'
+        };
+      }
+    } else {
+      // Patient can always join now
+      return {
+        text: 'Join Session',
+        icon: Video,
+        className: 'py-3 px-6 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold rounded-xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center'
+      };
     }
   };
 
@@ -223,29 +331,70 @@ const HomePage = () => {
         {/* Upcoming Appointments */}
         <div className="bg-white/70 backdrop-blur-xl rounded-3xl p-6 sm:p-8 border border-white/20 shadow-xl">
           <h2 className="text-2xl font-bold text-gray-800 mb-6">Upcoming Appointments</h2>
-          {/* Example Appointment - Replace with dynamic data */}
-          <div className="bg-white/80 p-5 rounded-2xl border-2 border-blue-200 shadow-lg flex items-center justify-between">
-            <div className="flex items-center">
-              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-teal-500 rounded-xl flex items-center justify-center mr-5">
-                <User className="w-6 h-6 text-white" />
+          
+          {appointments.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-teal-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Calendar className="w-8 h-8 text-white" />
               </div>
-              <div>
-                <p className="font-bold text-gray-800">{isDoctor ? mockAppointment.patientName : mockAppointment.doctorName}</p>
-                <p className="text-sm text-gray-600">{isDoctor ? 'General Checkup' : mockAppointment.doctorName.split(' ')[2] + ' Department'}</p>
-              </div>
+              <h3 className="text-xl font-semibold text-gray-800 mb-2">No Upcoming Appointments</h3>
+              <p className="text-gray-600">
+                {isDoctor 
+                  ? "No upcoming appointments scheduled. Check your appointment requests."
+                  : "You don't have any upcoming appointments. Book an appointment with a doctor."
+                }
+              </p>
             </div>
-            <div className="text-right">
-              <p className="font-semibold text-gray-800">{mockAppointment.appointmentTime}</p>
-              <p className="text-sm text-gray-500">Today, August 13</p>
+          ) : (
+            <div className="space-y-4">
+              {appointments.map((appointment) => {
+                const buttonProps = getJoinButtonProps(appointment);
+                
+                return (
+                  <div key={appointment.id} className="bg-white/80 p-5 rounded-2xl border-2 border-blue-200 shadow-lg flex items-center justify-between">
+                    <div className="flex items-center">
+                      <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-teal-500 rounded-xl flex items-center justify-center mr-5">
+                        <User className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-800">
+                          {isDoctor ? appointment.patientName : appointment.doctorName}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          {isDoctor 
+                            ? appointment.problem?.substring(0, 50) + (appointment.problem?.length > 50 ? '...' : '')
+                            : appointment.doctorSpecialization || 'General Consultation'
+                          }
+                        </p>
+                        <div className="flex items-center mt-1">
+                          <div className={`w-2 h-2 rounded-full mr-2 ${
+                            appointment.sessionStatus === 'active' ? 'bg-green-500' :
+                            'bg-blue-500' // Simplified: just blue for ready state
+                          }`}></div>
+                          <span className="text-xs text-gray-500 capitalize">
+                            {appointment.sessionStatus === 'active' ? 'Session Active' : 'Ready to Join'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right flex items-center">
+                      <div className="mr-8">
+                        <p className="font-semibold text-gray-800">{appointment.appointmentTime}</p>
+                        <p className="text-sm text-gray-500">{formatAppointmentDate(appointment.appointmentDate)}</p>
+                      </div>
+                      <button 
+                        onClick={() => handleJoinSession(appointment.id)}
+                        className={buttonProps.className}
+                      >
+                        <buttonProps.icon className="w-5 h-5 mr-2" />
+                        {buttonProps.text}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <button 
-              onClick={() => handleNavigate('session')}
-              className="ml-8 py-3 px-6 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold rounded-xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center"
-            >
-              <Video className="w-5 h-5 mr-2" />
-              Join Call
-            </button>
-          </div>
+          )}
         </div>
       </main>
       </div>
