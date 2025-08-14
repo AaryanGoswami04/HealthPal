@@ -4,7 +4,7 @@ import { doc, getDoc, collection, query, where, onSnapshot } from "firebase/fire
 import { auth, db } from '../firebase';
 import { 
   Calendar, User, Stethoscope, 
-  Activity, Search, Bell, Settings, LogOut, Video, ClipboardList
+  Activity, Search, Settings, LogOut, Video, ClipboardList
 } from 'lucide-react';
 import AppointmentSession from './AppointmentSession';
 import SettingsPage from './SettingsPage';
@@ -102,8 +102,21 @@ const HomePage = () => {
   };
 
   const handleJoinSession = (appointmentId) => {
+    console.log('Joining session with appointment ID:', appointmentId);
     setCurrentAppointmentId(appointmentId);
-    handleNavigate('session');
+    setView('session');
+  };
+
+  // Updated session end callback with better logging and state management
+  const handleEndSessionCallback = () => {
+    console.log('Session ended, returning to home...');
+    setCurrentAppointmentId(null);
+    setView('home');
+    
+    // Force a small delay to ensure state updates properly
+    setTimeout(() => {
+      console.log('View state after session end:', view);
+    }, 100);
   };
 
   const handleProfileUpdate = (newName) => {
@@ -128,18 +141,25 @@ const HomePage = () => {
   }
 
   // --- View Router ---
-  if (view === 'session') {
+  // Updated session view with proper validation
+  if (view === 'session' && currentAppointmentId) {
+      console.log('Rendering AppointmentSession with ID:', currentAppointmentId);
       return (
         <AppointmentSession 
           userProfile={userProfile} 
           appointmentId={currentAppointmentId}
-          onEndSession={() => {
-            setCurrentAppointmentId(null);
-            handleNavigate('home');
-          }} 
+          onEndSession={handleEndSessionCallback}
         />
       );
   }
+
+  // If view is session but no appointment ID, redirect to home
+  if (view === 'session' && !currentAppointmentId) {
+    console.log('Session view requested but no appointment ID, redirecting to home');
+    setView('home');
+    return null; // Return null while redirecting
+  }
+
   if (view === 'settings') {
       return <SettingsPage userProfile={userProfile} onBack={() => handleNavigate('home')} onProfileUpdated={handleProfileUpdate} />;
   }
@@ -229,8 +249,8 @@ const HomePage = () => {
       } else {
         return {
           text: 'Start Session',
-          icon: Video,
-          className: 'py-3 px-6 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center'
+          // icon: Video, // Icon removed for Start Session
+          className: 'py-3 px-6 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center justify-center'
         };
       }
     } else {
@@ -275,9 +295,6 @@ const HomePage = () => {
             </div>
 
             <div className="flex items-center">
-                <button className="p-3 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border border-white/20 hover:bg-white transition-all duration-300 group mr-3">
-                    <Bell className="w-5 h-5 text-gray-600 group-hover:text-blue-600"/>
-                </button>
                 <div className="relative group">
                     <button onClick={() => handleNavigate('settings')} className="flex items-center space-x-3 p-2 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border border-white/20 hover:bg-white transition-all duration-300">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-r from-blue-500 to-teal-500 flex items-center justify-center">
@@ -360,12 +377,16 @@ const HomePage = () => {
                         <p className="font-bold text-gray-800">
                           {isDoctor ? appointment.patientName : appointment.doctorName}
                         </p>
-                        <p className="text-sm text-gray-600">
-                          {isDoctor 
-                            ? appointment.problem?.substring(0, 50) + (appointment.problem?.length > 50 ? '...' : '')
-                            : appointment.doctorSpecialization || 'General Consultation'
-                          }
-                        </p>
+                        
+                        {/* ### MODIFIED THIS SECTION ### */}
+                        {/* The paragraph tag is now conditionally rendered. It will only appear for patients. */}
+                        {!isDoctor && (
+                            <p className="text-sm text-gray-600">
+                                {appointment.doctorSpecialization || 'General Consultation'}
+                            </p>
+                        )}
+                        {/* ########################## */}
+
                         <div className="flex items-center mt-1">
                           <div className={`w-2 h-2 rounded-full mr-2 ${
                             appointment.sessionStatus === 'active' ? 'bg-green-500' :
@@ -386,7 +407,7 @@ const HomePage = () => {
                         onClick={() => handleJoinSession(appointment.id)}
                         className={buttonProps.className}
                       >
-                        <buttonProps.icon className="w-5 h-5 mr-2" />
+                        {buttonProps.icon && <buttonProps.icon className="w-5 h-5 mr-2" />}
                         {buttonProps.text}
                       </button>
                     </div>

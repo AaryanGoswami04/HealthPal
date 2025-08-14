@@ -181,19 +181,43 @@ export const getPendingAppointmentRequests = async (doctorId) => {
  * @param {object} requestData - The data of the pending request
  */
 export const approveAppointmentRequest = async (requestId, requestData) => {
+  // Use a batch write for an atomic operation (both actions succeed or both fail)
+  const batch = writeBatch(db);
+
   try {
-    // First, create the confirmed appointment in the 'appointments' collection
+    // 1. Create a reference for the new document in the 'appointments' collection
+    const newAppointmentRef = doc(collection(db, "appointments"));
+
+    // 2. Explicitly build the new appointment object to ensure names are included
     const confirmedAppointment = {
-      ...requestData,
+      patientId: requestData.patientId,
+      patientName: requestData.patientName,
+      doctorId: requestData.doctorId,
+      doctorName: requestData.doctorName,
+      appointmentDate: requestData.appointmentDate,
+      appointmentTime: requestData.appointmentTime,
+      problem: requestData.problem,
+      doctorSpecialization: requestData.doctorSpecialization,
+      healthRecords: requestData.healthRecords, // Keep health records if needed
       status: 'upcoming',
-      sessionStatus: 'waiting', // Initialize session status
+      sessionStatus: 'waiting',
       createdAt: new Date(),
     };
-    await addDoc(collection(db, "appointments"), confirmedAppointment);
 
-    // Then, delete the original request from 'appointment_requests'
-    await deleteDoc(doc(db, "appointment_requests", requestId));
-    console.log(`Approved and moved request ${requestId} to appointments.`);
+    // 3. Add the 'set' operation for the new appointment to the batch
+    batch.set(newAppointmentRef, confirmedAppointment);
+
+    // 4. Create a reference to the request document that will be deleted
+    const requestRef = doc(db, "appointment_requests", requestId);
+
+    // 5. Add the 'delete' operation to the batch
+    batch.delete(requestRef);
+
+    // 6. Commit both operations at the same time
+    await batch.commit();
+
+    console.log(`Approved request ${requestId}. New appointment created.`);
+
   } catch (error) {
     console.error("Error approving appointment request:", error);
     throw error;
