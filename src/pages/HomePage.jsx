@@ -232,36 +232,49 @@ const HomePage = () => {
     }
   };
 
-  // Simplified: Doctor can always start/join, Patient can always join
-  const isJoinButtonEnabled = (appointment) => {
-    return true; // Both doctor and patient can always join
-  };
+  // ################## MODIFIED SECTION START ##################
+  // This function now handles the button's disabled state for patients.
 
-  // Get button text and styling for each appointment
   const getJoinButtonProps = (appointment) => {
+    const isSessionActive = appointment.sessionStatus === 'active';
+
     if (isDoctor) {
-      if (appointment.sessionStatus === 'active') {
+      if (isSessionActive) {
         return {
           text: 'Join Session',
           icon: Video,
+          disabled: false, // Doctor can always join an active session
           className: 'py-3 px-6 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold rounded-xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center'
         };
       } else {
         return {
           text: 'Start Session',
-          // icon: Video, // Icon removed for Start Session
+          icon: null, // No icon for "Start"
+          disabled: false, // Doctor can always start a session
           className: 'py-3 px-6 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold rounded-xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center justify-center'
         };
       }
     } else {
-      // Patient can always join now
-      return {
-        text: 'Join Session',
-        icon: Video,
-        className: 'py-3 px-6 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold rounded-xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center'
-      };
+      // Logic for the patient
+      if (isSessionActive) {
+        return {
+          text: 'Join Session',
+          icon: Video,
+          disabled: false, // Enable the button because the session is active
+          className: 'py-3 px-6 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold rounded-xl hover:shadow-xl transition-all duration-300 transform hover:scale-105 flex items-center'
+        };
+      } else {
+        return {
+          text: 'Waiting for Doctor',
+          icon: null, // No icon for waiting state
+          disabled: true, // Disable the button because the session is not active yet
+          className: 'py-3 px-6 bg-gray-400 text-white font-semibold rounded-xl transition-all duration-300 flex items-center justify-center cursor-not-allowed'
+        };
+      }
     }
   };
+  // ################## MODIFIED SECTION END ##################
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50 relative">
@@ -378,22 +391,19 @@ const HomePage = () => {
                           {isDoctor ? appointment.patientName : appointment.doctorName}
                         </p>
                         
-                        {/* ### MODIFIED THIS SECTION ### */}
-                        {/* The paragraph tag is now conditionally rendered. It will only appear for patients. */}
                         {!isDoctor && (
                             <p className="text-sm text-gray-600">
                                 {appointment.doctorSpecialization || 'General Consultation'}
                             </p>
                         )}
-                        {/* ########################## */}
 
                         <div className="flex items-center mt-1">
                           <div className={`w-2 h-2 rounded-full mr-2 ${
                             appointment.sessionStatus === 'active' ? 'bg-green-500' :
-                            'bg-blue-500' // Simplified: just blue for ready state
+                            'bg-blue-500'
                           }`}></div>
                           <span className="text-xs text-gray-500 capitalize">
-                            {appointment.sessionStatus === 'active' ? 'Session Active' : 'Ready to Join'}
+                            {appointment.sessionStatus === 'active' ? 'Session Active' : (isDoctor ? 'Ready to Start' : 'Waiting for Doctor')}
                           </span>
                         </div>
                       </div>
@@ -405,6 +415,7 @@ const HomePage = () => {
                       </div>
                       <button 
                         onClick={() => handleJoinSession(appointment.id)}
+                        disabled={buttonProps.disabled} // Use the new disabled property
                         className={buttonProps.className}
                       >
                         {buttonProps.icon && <buttonProps.icon className="w-5 h-5 mr-2" />}
