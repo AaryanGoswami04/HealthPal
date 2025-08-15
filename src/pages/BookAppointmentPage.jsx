@@ -232,13 +232,14 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
                         </div>
                         <div className="ml-4 flex-1">
                           <h3 className="font-semibold text-gray-800">{doctor.name}</h3>
-                          <p className="text-sm text-gray-600">{doctor.specialization}</p>
-                          <div className="flex items-center mt-1 text-sm text-gray-500">
-                            <Star className="w-4 h-4 text-yellow-500 fill-current mr-1" />
-                            <span>{doctor.rating || '4.8'}</span>
+                          {/* ################## MODIFIED SECTION START ################## */}
+                          <div className="flex items-center mt-1 text-sm text-gray-600">
+                            <Stethoscope className="w-4 h-4 text-blue-600 mr-1.5" />
+                            <span>{doctor.specialization}</span>
                             <span className="mx-2">•</span>
                             <span>{doctor.experience || '5+ years'}</span>
                           </div>
+                          {/* ################## MODIFIED SECTION END ################## */}
                         </div>
                         {selectedDoctor?.id === doctor.id && (
                           <CheckCircle className="w-6 h-6 text-blue-500 ml-2" />
@@ -340,7 +341,7 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
                 !selectedDoctor || 
                 !selectedDate || 
                 (selectedTime !== 'custom' && !selectedTime) || 
-                (selectedTime === 'custom' && !customTime.trim()) || 
+                (selectedTime === 'custom' && !customTame.trim()) || 
                 !symptoms.trim() || 
                 loading
               }
