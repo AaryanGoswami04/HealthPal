@@ -117,7 +117,7 @@ const DoctorPatientRecordsPage = ({ userProfile, onBack }) => {
               <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-blue-600 via-teal-600 to-emerald-600 bg-clip-text text-transparent">
                 Patient Records
               </h1>
-              <p className="text-gray-600 mt-1">View health records of your scheduled patients</p>
+              <p className="text-gray-600 mt-1">View health records of your patients</p>
             </div>
           </div>
         </header>

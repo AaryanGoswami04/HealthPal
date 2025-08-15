@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  ArrowLeft, User, Calendar, Clock, Stethoscope, 
+import {
+  ArrowLeft, User, Calendar, Clock, Stethoscope,
   FileText, Plus, Save, AlertCircle, CheckCircle,
   Activity, Heart, Pill, AlertTriangle
 } from 'lucide-react';
@@ -13,17 +13,17 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
-  
+
   // Doctor's medical update forms
   const [newAllergy, setNewAllergy] = useState({ name: '', severity: '', reaction: '' });
   const [newMedication, setNewMedication] = useState({ name: '', dosage: '', frequency: '', instructions: '' });
   const [newCondition, setNewCondition] = useState({ name: '', diagnosedDate: '', severity: '', notes: '' });
-  const [newHistoryEntry, setNewHistoryEntry] = useState({ 
-    date: new Date().toISOString().split('T')[0], 
-    description: '', 
-    diagnosis: '', 
-    treatment: '', 
-    notes: '' 
+  const [newHistoryEntry, setNewHistoryEntry] = useState({
+    date: new Date().toISOString().split('T')[0],
+    description: '',
+    diagnosis: '',
+    treatment: '',
+    notes: ''
   });
 
   const isDoctor = userProfile.role === 'doctor';
@@ -31,78 +31,48 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   useEffect(() => {
     const fetchSessionData = async () => {
       try {
-        console.log("=== AppointmentSession fetchSessionData Debug ===");
         setLoading(true);
-        console.log("1. Starting fetch with appointmentId:", appointmentId);
-        console.log("2. User profile:", userProfile);
-        console.log("3. Is doctor:", isDoctor);
-        
-        // Fetch appointment details
-        console.log("4. Calling getAppointmentDetails...");
         const appointmentData = await getAppointmentDetails(appointmentId);
-        console.log("5. getAppointmentDetails returned:", appointmentData);
-        
+
         if (!appointmentData) {
-          console.error("6. ERROR: appointmentData is null/undefined");
-          console.error("7. Setting loading to false and returning");
+          console.error("ERROR: appointmentData is null/undefined");
           setLoading(false);
           return;
         }
-        
-        console.log("8. SUCCESS: Setting appointment data");
+
         setAppointment(appointmentData);
-        
-        // Fetch patient health record
+
         const patientId = isDoctor ? appointmentData.patientId : userProfile.uid;
-        console.log("9. Fetching health record for patient ID:", patientId);
-        
         const healthData = await getPatientHealthRecord(patientId);
-        console.log("10. Health record fetched:", healthData);
         setHealthRecord(healthData);
-        
-        // Update session status to active when doctor joins
+
         if (isDoctor && appointmentData.sessionStatus !== 'active') {
-          console.log("11. Doctor joining - updating session status to active");
           await updateAppointmentSessionStatus(appointmentId, 'active');
           setAppointment(prev => ({ ...prev, sessionStatus: 'active' }));
         }
-        
-        console.log("12. SUCCESS: All data fetched successfully");
-        
+
       } catch (error) {
-        console.error("13. CATCH ERROR in fetchSessionData:", error);
-        console.error("14. Error message:", error.message);
-        console.error("15. Error stack:", error.stack);
+        console.error("CATCH ERROR in fetchSessionData:", error);
       } finally {
-        console.log("16. Setting loading to false");
         setLoading(false);
       }
     };
 
-    console.log("=== useEffect triggered ===");
-    console.log("appointmentId:", appointmentId);
-    console.log("userProfile:", userProfile);
-    console.log("userProfile.uid:", userProfile?.uid);
-
     if (appointmentId && userProfile) {
-      console.log("Both appointmentId and userProfile exist - calling fetchSessionData");
       fetchSessionData();
     } else {
-      console.log("Missing required data:");
-      console.log("- appointmentId:", appointmentId);
-      console.log("- userProfile:", userProfile?.uid);
       setLoading(false);
     }
   }, [appointmentId, userProfile, isDoctor]);
 
   const handleAddMedicalInfo = async (type) => {
     if (!isDoctor) return;
-    
+
     try {
       setUpdating(true);
       const doctorInfo = { uid: userProfile.uid, name: userProfile.name };
       const updates = {};
-      
+
       switch (type) {
         case 'allergy':
           if (newAllergy.name.trim()) {
@@ -125,24 +95,25 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
         case 'history':
           if (newHistoryEntry.description.trim()) {
             updates.historyEntry = newHistoryEntry;
-            setNewHistoryEntry({ 
-              date: new Date().toISOString().split('T')[0], 
-              description: '', 
-              diagnosis: '', 
-              treatment: '', 
-              notes: '' 
+            setNewHistoryEntry({
+              date: new Date().toISOString().split('T')[0],
+              description: '',
+              diagnosis: '',
+              treatment: '',
+              notes: ''
             });
           }
           break;
+        default:
+         break;
       }
-      
+
       if (Object.keys(updates).length > 0) {
         await updatePatientMedicalInfoInSession(appointment.patientId, updates, doctorInfo);
-        
-        // Refresh health record
+
         const updatedHealthRecord = await getPatientHealthRecord(appointment.patientId);
         setHealthRecord(updatedHealthRecord);
-        
+
         setSaveMessage('Medical information updated successfully!');
         setTimeout(() => setSaveMessage(''), 3000);
       }
@@ -157,7 +128,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
 
   const handleCompleteSession = async () => {
     if (!isDoctor) return;
-    
+
     try {
       setUpdating(true);
       await completeAppointmentSession(appointmentId);
@@ -190,7 +161,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
         <div className="text-center">
           <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <p className="text-xl text-gray-600">Appointment not found</p>
-          <button 
+          <button
             onClick={handleEndSession}
             className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
@@ -202,30 +173,25 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50">
-      {/* Header */}
-      <header className="bg-white/90 backdrop-blur-xl shadow-lg border-b border-white/20 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50 p-4 sm:p-6 lg:p-8">
+      <div className="max-w-7xl mx-auto">
+        <header className="mb-8 flex items-center justify-between">
             <div className="flex items-center">
-              <button 
-                onClick={handleEndSession}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors mr-4"
-              >
-                <ArrowLeft className="w-6 h-6 text-gray-600" />
-              </button>
-              <div className="flex items-center">
-                <Stethoscope className="w-8 h-8 text-blue-600 mr-3" />
+                <button
+                    onClick={handleEndSession}
+                    className="p-3 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border border-white/20 hover:bg-white transition-all duration-300 group mr-4"
+                >
+                    <ArrowLeft className="w-5 h-5 text-gray-600 group-hover:text-blue-600"/>
+                </button>
                 <div>
-                  <h1 className="text-xl font-bold text-gray-800">Appointment Session</h1>
-                  <div className="flex items-center text-sm text-gray-500">
-                    <div className={`w-2 h-2 rounded-full mr-2 ${
-                      appointment.sessionStatus === 'active' ? 'bg-green-500' : 'bg-blue-500'
-                    }`}></div>
-                    {appointment.sessionStatus === 'active' ? 'Session Active' : 'Session Ready'}
-                  </div>
+                    <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-blue-600 via-teal-600 to-emerald-600 bg-clip-text text-transparent">
+                        Appointment Session
+                    </h1>
+                    <div className="flex items-center text-gray-600 mt-1">
+                        <div className={`w-2 h-2 rounded-full mr-2 ${appointment.sessionStatus === 'active' ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`}></div>
+                        {appointment.sessionStatus === 'active' ? 'Session Active' : 'Session Ready'}
+                    </div>
                 </div>
-              </div>
             </div>
             <div className="flex items-center space-x-4">
               {saveMessage && (
@@ -238,29 +204,26 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                 <button
                   onClick={handleCompleteSession}
                   disabled={updating}
-                  className="px-6 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-50 transition-colors"
+                  className="py-3 px-6 rounded-xl text-white font-semibold bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center disabled:opacity-50"
                 >
                   {updating ? 'Completing...' : 'Complete Session'}
                 </button>
               )}
             </div>
-          </div>
-        </div>
-      </header>
+        </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
+
           {/* Left Column - Appointment Info & Patient Problem */}
           <div className="lg:col-span-1 space-y-6">
-            
+
             {/* Appointment Details Card */}
             <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/20">
               <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
                 <Calendar className="w-6 h-6 mr-2 text-blue-600" />
                 Appointment Details
               </h2>
-              
+
               <div className="space-y-4">
                 <div className="flex items-center">
                   <User className="w-5 h-5 text-gray-400 mr-3" />
@@ -273,7 +236,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                     </p>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center">
                   <Calendar className="w-5 h-5 text-gray-400 mr-3" />
                   <div>
@@ -281,7 +244,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                     <p className="font-semibold text-gray-800">{appointment.appointmentDate}</p>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center">
                   <Clock className="w-5 h-5 text-gray-400 mr-3" />
                   <div>
@@ -308,7 +271,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                 <FileText className="w-6 h-6 mr-2 text-red-600" />
                 {isDoctor ? 'Patient Problem' : 'Your Problem'}
               </h2>
-              
+
               <div className="bg-red-50 border border-red-200 rounded-xl p-4">
                 <p className="text-gray-800 leading-relaxed">
                   {appointment.problem || 'No problem description provided.'}
@@ -332,7 +295,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                 </div>
               ) : (
                 <div className="space-y-8">
-                  
+
                   {/* Personal Details */}
                   <div className="border-b border-gray-200 pb-6">
                     <h3 className="text-lg font-semibold text-gray-800 mb-4">Personal Details</h3>
@@ -367,7 +330,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                         Allergies
                       </h3>
                     </div>
-                    
+
                     {healthRecord.allergies && healthRecord.allergies.length > 0 ? (
                       <div className="space-y-3">
                         {healthRecord.allergies.map((allergy, index) => (
@@ -445,7 +408,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                         Current Medications
                       </h3>
                     </div>
-                    
+
                     {healthRecord.currentMedications && healthRecord.currentMedications.length > 0 ? (
                       <div className="space-y-3">
                         {healthRecord.currentMedications.map((medication, index) => (
@@ -530,7 +493,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                         Chronic Conditions
                       </h3>
                     </div>
-                    
+
                     {healthRecord.chronicConditions && healthRecord.chronicConditions.length > 0 ? (
                       <div className="space-y-3">
                         {healthRecord.chronicConditions.map((condition, index) => (
@@ -619,7 +582,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                         Medical History
                       </h3>
                     </div>
-                    
+
                     {healthRecord.medicalHistory && healthRecord.medicalHistory.length > 0 ? (
                       <div className="space-y-3">
                         {healthRecord.medicalHistory.map((entry, index) => (
