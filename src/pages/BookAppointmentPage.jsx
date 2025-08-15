@@ -1,40 +1,49 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  ArrowLeft, Search, Calendar, Clock, User, 
+import {
+  ArrowLeft, Search, Calendar, Clock, User,
   Stethoscope, Star, CheckCircle, AlertCircle, Loader, Send
 } from 'lucide-react';
-import { 
-  fetchDoctors, // This function fetches doctors from Firebase
-  createAppointmentRequest, 
-  getAvailableTimeSlots, 
+import {
+  fetchDoctors,
+  createAppointmentRequest,
+  getAvailableTimeSlots,
   searchDoctors,
   getHealthRecord
 } from '../services/appointmentService';
 
+const formatTo12Hour = (time24) => {
+  if (!time24) return '';
+  const [hours, minutes] = time24.split(':');
+  const h = parseInt(hours, 10);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  const formattedHours = h12 < 10 ? `0${h12}` : h12;
+  return `${formattedHours}:${minutes} ${ampm}`;
+};
 
 const BookAppointmentPage = ({ userProfile, onBack }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [doctors, setDoctors] = useState([]);
-  const [allDoctors, setAllDoctors] = useState([]); // Store all doctors for filtering
+  const [allDoctors, setAllDoctors] = useState([]);
   const [symptoms, setSymptoms] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
+  const [customTime, setCustomTime] = useState('');
   const [availableSlots, setAvailableSlots] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true); // Add loading state for doctors
+  const [loading, setLoading] = useState(true);
 
-  // Load all doctors on component mount from Firebase
   useEffect(() => {
     const loadDoctors = async () => {
       try {
         setLoading(true);
         const doctorsFromFirebase = await fetchDoctors();
         setAllDoctors(doctorsFromFirebase);
-        setDoctors(doctorsFromFirebase); // Initially show all doctors
-        setError(''); // Clear any previous errors
+        setDoctors(doctorsFromFirebase);
+        setError('');
       } catch (error) {
         console.error('Error loading doctors:', error);
         setError('Failed to load doctors. Please try again.');
@@ -42,11 +51,9 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
         setLoading(false);
       }
     };
-
     loadDoctors();
   }, []);
 
-  // Search doctors when search query changes
   useEffect(() => {
     if (allDoctors.length > 0) {
       const filteredDoctors = searchDoctors(searchQuery, allDoctors);
@@ -54,7 +61,6 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
     }
   }, [searchQuery, allDoctors]);
 
-  // Load available time slots when doctor and date are selected
   useEffect(() => {
     if (selectedDoctor && selectedDate) {
       loadAvailableSlots();
@@ -65,7 +71,8 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
     try {
       const slots = await getAvailableTimeSlots(selectedDate, selectedDoctor.id);
       setAvailableSlots(slots);
-      setSelectedTime(''); // Reset selected time when slots change
+      setSelectedTime('');
+      setCustomTime('');
     } catch (error) {
       console.error('Error loading time slots:', error);
       setError('Failed to load available time slots');
@@ -74,25 +81,27 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
 
   const handleDoctorSelect = (doctor) => {
     setSelectedDoctor(doctor);
-    setSelectedTime(''); // Reset time when doctor changes
+    setSelectedTime('');
+    setCustomTime('');
   };
 
-  const getTomorrowDate = () => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow.toISOString().split('T')[0];
+  // ################## MODIFIED SECTION START ##################
+  // This function now returns today's date instead of tomorrow's.
+  const getMinDate = () => {
+    return new Date().toISOString().split('T')[0];
   };
+  // ################## MODIFIED SECTION END ##################
 
   const getMaxDate = () => {
     const maxDate = new Date();
-    maxDate.setDate(maxDate.getDate() + 30); // 30 days from now
+    maxDate.setDate(maxDate.getDate() + 30);
     return maxDate.toISOString().split('T')[0];
   };
 
-  // This is the single, corrected handleRequestAppointment function
   const handleRequestAppointment = async () => {
-    if (!selectedDoctor || !selectedDate || !selectedTime || !symptoms.trim()) {
-      setError('Please fill in all required fields');
+    const finalTime = selectedTime === 'custom' ? formatTo12Hour(customTime) : selectedTime;
+    if (!selectedDoctor || !selectedDate || !finalTime || !finalTime.trim() || !symptoms.trim()) {
+      setError('Please fill in all required fields correctly.');
       return;
     }
 
@@ -107,19 +116,13 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
         doctorName: selectedDoctor.name,
         doctorSpecialization: selectedDoctor.specialization,
         appointmentDate: selectedDate,
-        appointmentTime: selectedTime,
+        appointmentTime: finalTime,
         problem: symptoms,
       };
 
-      // Fetch the patient's health record before creating the request
       const healthRecordData = await getHealthRecord(userProfile.uid);
-
-      // Pass both the request data and health record to the service function
-      await createAppointmentRequest(requestData, healthRecordData); 
-      
+      await createAppointmentRequest(requestData, healthRecordData);
       setShowSuccess(true);
-      
-      // Reset form after success
       setTimeout(() => {
         setShowSuccess(false);
         onBack();
@@ -134,6 +137,7 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
   };
 
   if (showSuccess) {
+    const finalTime = selectedTime === 'custom' ? formatTo12Hour(customTime) : selectedTime;
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50 flex items-center justify-center p-4">
         <div className="bg-white/80 backdrop-blur-xl rounded-3xl p-8 sm:p-12 shadow-2xl border border-white/20 text-center max-w-md">
@@ -143,16 +147,14 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
           <h2 className="text-2xl font-bold text-gray-800 mb-4">Request Sent!</h2>
           <p className="text-gray-600 mb-2">Your appointment request has been sent to</p>
           <p className="font-semibold text-gray-800 mb-2">{selectedDoctor?.name}</p>
-          <p className="text-gray-600 mb-6">for {selectedDate} at {selectedTime}</p>
-          
+          <p className="text-gray-600 mb-6">for {selectedDate} at {finalTime}</p>
           <div className="bg-blue-50/80 rounded-2xl p-4 mb-6">
             <p className="text-blue-800 font-medium mb-2">⏳ Waiting for Doctor's Approval</p>
             <p className="text-blue-700 text-sm">
-              The doctor will review your request and approve or suggest alternative times. 
+              The doctor will review your request and approve or suggest alternative times.
               You'll be notified once there's an update.
             </p>
           </div>
-          
           <p className="text-sm text-gray-500">Redirecting you back to the dashboard...</p>
         </div>
       </div>
@@ -162,10 +164,9 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-5xl mx-auto">
-        {/* Header */}
         <header className="mb-8 flex items-center justify-between">
           <div className="flex items-center">
-            <button 
+            <button
               onClick={onBack}
               className="p-3 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border border-white/20 hover:bg-white transition-all duration-300 group mr-4"
             >
@@ -181,14 +182,12 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Column - Doctor Search & Selection */}
           <div className="space-y-6">
             <div className="bg-white/70 backdrop-blur-xl rounded-3xl p-6 border border-white/20 shadow-xl">
               <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                 <Search className="w-5 h-5 mr-3 text-blue-600" />
                 1. Find Your Doctor
               </h2>
-              
               <div className="relative mb-6">
                 <div className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400">
                   <Search className="w-5 h-5" />
@@ -251,8 +250,6 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
               </div>
             </div>
           </div>
-
-          {/* Right Column - Appointment Details */}
           <div className="space-y-6">
             <div className="bg-white/70 backdrop-blur-xl rounded-3xl p-6 border border-white/20 shadow-xl">
               <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
@@ -267,7 +264,6 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
                 className="w-full p-4 border-2 border-gray-200 rounded-2xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 bg-white/70 resize-none"
               />
             </div>
-
             <div className="bg-white/70 backdrop-blur-xl rounded-3xl p-6 border border-white/20 shadow-xl">
               <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
                 <Calendar className="w-5 h-5 mr-3 text-purple-500" />
@@ -277,28 +273,52 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                min={getTomorrowDate()}
+                min={getMinDate()}
                 max={getMaxDate()}
                 disabled={!selectedDoctor}
                 className="w-full p-3 border-2 border-gray-200 rounded-2xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 bg-white/70 disabled:bg-gray-100"
               />
               
               {selectedDate && selectedDoctor ? (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-4">
-                  {availableSlots.map((slot) => (
+                <>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-4">
+                    {availableSlots.map((slot) => (
+                      <button
+                        key={slot}
+                        onClick={() => setSelectedTime(slot)}
+                        className={`p-3 rounded-xl border-2 text-center transition-all duration-300 ${
+                          selectedTime === slot
+                            ? 'border-blue-500 bg-blue-50/50 text-blue-700 font-semibold'
+                            : 'border-gray-200 bg-white/50 hover:bg-white/70 hover:border-gray-300'
+                        }`}
+                      >
+                        {slot}
+                      </button>
+                    ))}
                     <button
-                      key={slot}
-                      onClick={() => setSelectedTime(slot)}
+                      onClick={() => setSelectedTime('custom')}
                       className={`p-3 rounded-xl border-2 text-center transition-all duration-300 ${
-                        selectedTime === slot
+                        selectedTime === 'custom'
                           ? 'border-blue-500 bg-blue-50/50 text-blue-700 font-semibold'
                           : 'border-gray-200 bg-white/50 hover:bg-white/70 hover:border-gray-300'
                       }`}
                     >
-                      {slot}
+                      Other...
                     </button>
-                  ))}
-                </div>
+                  </div>
+                  
+                  {selectedTime === 'custom' && (
+                    <div className="mt-4">
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Enter Custom Time</label>
+                      <input
+                        type="time"
+                        value={customTime}
+                        onChange={(e) => setCustomTime(e.target.value)}
+                        className="w-full p-3 border-2 border-gray-200 rounded-2xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 bg-white/70"
+                      />
+                    </div>
+                  )}
+                </>
               ) : (
                 <p className="text-gray-500 text-center py-4 mt-2 bg-gray-50 rounded-xl">
                   {!selectedDoctor ? 'Please select a doctor first' : 'Please select a date to see available times'}
@@ -315,7 +335,15 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
 
             <button
               onClick={handleRequestAppointment}
-              disabled={isSubmitting || !selectedDoctor || !selectedDate || !selectedTime || !symptoms.trim() || loading}
+              disabled={
+                isSubmitting || 
+                !selectedDoctor || 
+                !selectedDate || 
+                (selectedTime !== 'custom' && !selectedTime) || 
+                (selectedTime === 'custom' && !customTime.trim()) || 
+                !symptoms.trim() || 
+                loading
+              }
               className="w-full py-4 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-semibold rounded-2xl hover:shadow-2xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 flex items-center justify-center text-lg"
             >
               {isSubmitting ? (
