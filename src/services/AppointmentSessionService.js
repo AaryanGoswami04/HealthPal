@@ -1,141 +1,115 @@
-import {
-  doc,
-  updateDoc,
-  onSnapshot,
-  collection,
-  addDoc,
-  query,
-  orderBy,
-  deleteDoc,
-  serverTimestamp,
-  writeBatch
-} from "firebase/firestore";
+import { doc, getDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { db } from '../firebase';
+import { updatePatientMedicalInfo } from './healthRecordService';
 
-class AppointmentSessionService {
-  constructor(appointmentId) {
-    this.appointmentId = appointmentId;
-    this.appointmentRef = doc(db, "appointments", appointmentId);
-    this.messagesRef = collection(db, "appointments", appointmentId, "messages");
-    this.unsubscribeAppointment = null;
-    this.unsubscribeMessages = null;
-  }
-
-  // Start the appointment session
-  async startSession(doctorId) {
-    try {
-      await updateDoc(this.appointmentRef, {
-        sessionStatus: 'active',
-        sessionStartTime: serverTimestamp(),
-        sessionDuration: 10000, // 10 seconds for testing
-        startedBy: doctorId
-      });
-      return { success: true };
-    } catch (error) {
-      console.error("Error starting session:", error);
-      return { success: false, error: error.message };
+/**
+ * Fetches complete appointment details including patient info
+ * @param {string} appointmentId - The appointment ID
+ * @returns {Object|null} Complete appointment data or null if not found
+ */
+export const getAppointmentDetails = async (appointmentId) => {
+  try {
+    console.log("=== getAppointmentDetails Debug ===");
+    console.log("1. Appointment ID received:", appointmentId);
+    console.log("2. DB instance:", db);
+    
+    if (!appointmentId) {
+      console.error("3. ERROR: No appointment ID provided");
+      return null;
     }
-  }
-
-  // End the appointment session and clean up
-  async endSession(userId, reason = 'completed') {
-    try {
-      const batch = writeBatch(db);
-
-      // Update appointment status to 'ended'.
-      // Note: We are deleting the appointment right after, so this status is short-lived.
-      // It can be useful for logging or if you decide not to delete appointments immediately.
-      batch.update(this.appointmentRef, {
-        sessionStatus: 'ended',
-        sessionEndTime: serverTimestamp(),
-        endedBy: userId,
-        endReason: reason
-      });
-
-      // Delete the appointment document
-      batch.delete(this.appointmentRef);
-
-      await batch.commit();
-
-      return { success: true };
-    } catch (error) {
-      console.error("Error ending session:", error);
-      return { success: false, error: error.message };
+    
+    console.log("4. Creating document reference...");
+    const appointmentRef = doc(db, "appointments", appointmentId);
+    console.log("5. Document reference created:", appointmentRef);
+    console.log("6. Document path:", appointmentRef.path);
+    
+    console.log("7. Attempting to fetch document...");
+    const appointmentSnap = await getDoc(appointmentRef);
+    console.log("8. Document snapshot received:", appointmentSnap);
+    console.log("9. Document exists:", appointmentSnap.exists());
+    
+    if (appointmentSnap.exists()) {
+      const appointmentData = appointmentSnap.data();
+      console.log("10. SUCCESS: Document data:", appointmentData);
+      return {
+        id: appointmentId,
+        ...appointmentData
+      };
+    } else {
+      console.log("11. ERROR: Document does not exist");
+      console.log("12. Document path checked:", `appointments/${appointmentId}`);
+      console.log("13. Snapshot metadata:", appointmentSnap.metadata);
+      return null;
     }
+  } catch (error) {
+    console.error("14. CATCH ERROR in getAppointmentDetails:", error);
+    console.error("15. Error message:", error.message);
+    console.error("16. Error code:", error.code);
+    console.error("17. Full error:", error);
+    throw error;
   }
+};
 
-  // Send a message in the chat
-  async sendMessage(senderId, senderName, senderRole, messageText) {
-    try {
-      await addDoc(this.messagesRef, {
-        senderId,
-        senderName,
-        senderRole,
-        message: messageText,
-        timestamp: serverTimestamp(),
-        createdAt: new Date().toISOString()
-      });
-      return { success: true };
-    } catch (error) {
-      console.error("Error sending message:", error);
-      return { success: false, error: error.message };
+/**
+ * Updates appointment session status
+ * @param {string} appointmentId - The appointment ID
+ * @param {string} sessionStatus - New session status ('waiting', 'active', 'completed')
+ * @returns {Promise} Promise that resolves when update is complete
+ */
+export const updateAppointmentSessionStatus = async (appointmentId, sessionStatus) => {
+  try {
+    const appointmentRef = doc(db, "appointments", appointmentId);
+    await updateDoc(appointmentRef, {
+      sessionStatus: sessionStatus,
+      updatedAt: new Date()
+    });
+    console.log(`Appointment ${appointmentId} session status updated to: ${sessionStatus}`);
+  } catch (error) {
+    console.error("Error updating appointment session status:", error);
+    throw error;
+  }
+};
+
+/**
+ * Completes an appointment session
+ * @param {string} appointmentId - The appointment ID
+ * @param {Object} sessionNotes - Optional notes about the session
+ * @returns {Promise} Promise that resolves when appointment is completed
+ */
+export const completeAppointmentSession = async (appointmentId, sessionNotes = null) => {
+  try {
+    const appointmentRef = doc(db, "appointments", appointmentId);
+    const updateData = {
+      status: 'completed',
+      sessionStatus: 'completed',
+      completedAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    if (sessionNotes) {
+      updateData.sessionNotes = sessionNotes;
     }
+    
+    await updateDoc(appointmentRef, updateData);
+    console.log(`Appointment ${appointmentId} completed successfully`);
+  } catch (error) {
+    console.error("Error completing appointment session:", error);
+    throw error;
   }
+};
 
-  // Listen for appointment updates
-  subscribeToAppointment(callback) {
-    this.unsubscribeAppointment = onSnapshot(this.appointmentRef,
-      (doc) => {
-        if (doc.exists()) {
-          callback({ exists: true, data: doc.data() });
-        } else {
-          callback({ exists: false, data: null });
-        }
-      },
-      (error) => {
-        console.error("Error listening to appointment:", error);
-        callback({ exists: false, data: null, error: error.message });
-      }
-    );
+/**
+ * Updates patient medical information during appointment session
+ * @param {string} patientId - The patient's ID
+ * @param {Object} medicalUpdates - Medical information to update
+ * @param {Object} doctorInfo - Doctor information
+ * @returns {Promise} Promise that resolves when update is complete
+ */
+export const updatePatientMedicalInfoInSession = async (patientId, medicalUpdates, doctorInfo) => {
+  try {
+    return await updatePatientMedicalInfo(patientId, medicalUpdates, doctorInfo);
+  } catch (error) {
+    console.error("Error updating patient medical info in session:", error);
+    throw error;
   }
-
-  // Listen for chat messages
-  subscribeToMessages(callback) {
-    const messagesQuery = query(this.messagesRef, orderBy("createdAt", "asc"));
-
-    this.unsubscribeMessages = onSnapshot(messagesQuery,
-      (snapshot) => {
-        const messages = [];
-        snapshot.forEach((doc) => {
-          messages.push({ id: doc.id, ...doc.data() });
-        });
-        callback(messages);
-      },
-      (error) => {
-        console.error("Error listening to messages:", error);
-        callback([]);
-      }
-    );
-  }
-
-  // Clean up listeners
-  cleanup() {
-    if (this.unsubscribeAppointment) {
-      this.unsubscribeAppointment();
-      this.unsubscribeAppointment = null;
-    }
-    if (this.unsubscribeMessages) {
-      this.unsubscribeMessages();
-      this.unsubscribeMessages = null;
-    }
-  }
-
-  // Auto-end session after duration
-  startSessionTimer(onTimeUp) {
-    return setTimeout(() => {
-      onTimeUp();
-    }, 10000); // 10 seconds
-  }
-}
-
-export default AppointmentSessionService;
+};
