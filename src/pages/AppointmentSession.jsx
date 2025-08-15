@@ -4,6 +4,8 @@ import {
   FileText, Plus, Save, AlertCircle, CheckCircle,
   Activity, Heart, Pill, AlertTriangle
 } from 'lucide-react';
+import { doc, onSnapshot } from 'firebase/firestore'; // Add onSnapshot import
+import { db } from '../firebase'; // Add db import
 import { getAppointmentDetails, updateAppointmentSessionStatus, completeAppointmentSession, updatePatientMedicalInfoInSession } from '../services/AppointmentSessionService';
 import { getPatientHealthRecord } from '../services/healthRecordService';
 
@@ -27,6 +29,33 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   });
 
   const isDoctor = userProfile.role === 'doctor';
+
+  // Real-time listener for appointment status changes
+  useEffect(() => {
+    if (!appointmentId) return;
+
+    const appointmentRef = doc(db, "appointments", appointmentId);
+    const unsubscribe = onSnapshot(appointmentRef, (doc) => {
+      if (doc.exists()) {
+        const appointmentData = doc.data();
+        
+        // Check if session was completed by doctor
+        if (appointmentData.sessionStatus === 'completed' && !isDoctor) {
+          // Patient should be redirected when doctor completes the session
+          console.log("Session completed by doctor, redirecting patient...");
+          onEndSession();
+          return;
+        }
+        
+        // Update appointment state
+        setAppointment(prev => prev ? { ...prev, ...appointmentData } : null);
+      }
+    }, (error) => {
+      console.error("Error listening to appointment changes:", error);
+    });
+
+    return () => unsubscribe();
+  }, [appointmentId, isDoctor, onEndSession]);
 
   useEffect(() => {
     const fetchSessionData = async () => {
@@ -132,7 +161,8 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
     try {
       setUpdating(true);
       await completeAppointmentSession(appointmentId);
-      onEndSession();
+      // The real-time listener will handle redirecting the patient
+      onEndSession(); // Redirect doctor immediately
     } catch (error) {
       console.error("Error completing session:", error);
     } finally {
