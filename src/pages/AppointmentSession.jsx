@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft, User, Calendar, Clock, Stethoscope,
-  FileText, Plus, Save, AlertCircle, CheckCircle,
+  FileText, Plus, Save, AlertCircle, CheckCircle,Fingerprint,
   Activity, Heart, Pill, AlertTriangle
 } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore'; // Add onSnapshot import
 import { db } from '../firebase'; // Add db import
 import { getAppointmentDetails, updateAppointmentSessionStatus, completeAppointmentSession, updatePatientMedicalInfoInSession } from '../services/AppointmentSessionService';
-import { getPatientHealthRecord } from '../services/healthRecordService';
+import { getPatientHealthRecord, notarizeHealthRecordOnChain  } from '../services/healthRecordService';
 
 const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const [appointment, setAppointment] = useState(null);
@@ -27,7 +27,8 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
     treatment: '',
     notes: ''
   });
-
+ const [notarizing, setNotarizing] = useState(false);
+  const [notarizeMessage, setNotarizeMessage] = useState('');
   const isDoctor = userProfile.role === 'doctor';
 
   // Real-time listener for appointment status changes
@@ -154,7 +155,26 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
       setUpdating(false);
     }
   };
+  const handleNotarizeRecord = async () => {
+    if (!healthRecord) {
+      alert("No health record data to notarize.");
+      return;
+    }
 
+    setNotarizing(true);
+    setNotarizeMessage('');
+    try {
+      // Calls the function from your service file
+      const result = await notarizeHealthRecordOnChain(appointment.patientId, healthRecord);
+      setNotarizeMessage(`Success! Tx: ${result.txHash.substring(0, 12)}...`);
+    } catch (error) {
+      console.error("Notarization failed:", error);
+      setNotarizeMessage(`Error: ${error.message}`);
+    } finally {
+      setNotarizing(false);
+      setTimeout(() => setNotarizeMessage(''), 6000); // Clear message after 6 seconds
+    }
+  };
   const handleCompleteSession = async () => {
     if (!isDoctor) return;
 
@@ -229,6 +249,22 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                   <CheckCircle className="w-4 h-4 mr-1" />
                   <span className="text-sm">{saveMessage}</span>
                 </div>
+              )}
+              {notarizeMessage && (
+                <div className={`flex items-center px-3 py-1 ${notarizeMessage.startsWith('Success') ? 'bg-indigo-100 text-indigo-800' : 'bg-red-100 text-red-800'} rounded-full`}>
+                  {notarizeMessage.startsWith('Success') ? <CheckCircle className="w-4 h-4 mr-1" /> : <AlertCircle className="w-4 h-4 mr-1" />}
+                  <span className="text-sm">{notarizeMessage}</span>
+                </div>
+              )}
+              {isDoctor && (
+                <button
+                  onClick={handleNotarizeRecord}
+                  disabled={notarizing || updating}
+                  className="py-3 px-6 rounded-xl text-white font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center disabled:opacity-50"
+                >
+                  <Fingerprint className="w-4 h-4 mr-2" />
+                  {notarizing ? 'Notarizing...' : 'Notarize on Blockchain'}
+                </button>
               )}
               {isDoctor && (
                 <button

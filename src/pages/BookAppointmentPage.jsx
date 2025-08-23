@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft, Search, Calendar, Clock, User,
-  Stethoscope, Star, CheckCircle, AlertCircle, Loader, Send
+  Stethoscope, Star, CheckCircle, AlertCircle, Loader, Send,Fingerprint
 } from 'lucide-react';
 import {
   fetchDoctors,
@@ -341,7 +341,7 @@ const BookAppointmentPage = ({ userProfile, onBack }) => {
                 !selectedDoctor || 
                 !selectedDate || 
                 (selectedTime !== 'custom' && !selectedTime) || 
-                (selectedTime === 'custom' && !customTame.trim()) || 
+                (selectedTime === 'custom' && !customTime.trim()) || 
                 !symptoms.trim() || 
                 loading
               }

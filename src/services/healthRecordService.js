@@ -153,3 +153,167 @@ export const updatePatientMedicalInfo = async (patientUid, updates, doctorInfo) 
     throw error;
   }
 };
+
+// ==================================================================
+// START: NEW BLOCKCHAIN INTEGRATION CODE
+// ==================================================================
+import { ethers } from "ethers";
+import CryptoJS from 'crypto-js';
+
+// --- PASTE YOUR DEPLOYED CONTRACT DETAILS HERE ---
+const contractAddress = "0xF6b95638D2864205354Db252670054e02a3416D3";
+const contractABI = [
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "_patientId",
+				"type": "string"
+			},
+			{
+				"internalType": "string",
+				"name": "_recordHash",
+				"type": "string"
+			}
+		],
+		"name": "addRecordHash",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"anonymous": false,
+		"inputs": [
+			{
+				"indexed": true,
+				"internalType": "string",
+				"name": "patientId",
+				"type": "string"
+			},
+			{
+				"indexed": false,
+				"internalType": "string",
+				"name": "recordHash",
+				"type": "string"
+			},
+			{
+				"indexed": false,
+				"internalType": "uint256",
+				"name": "timestamp",
+				"type": "uint256"
+			}
+		],
+		"name": "RecordUpdated",
+		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "_patientId",
+				"type": "string"
+			}
+		],
+		"name": "getLatestRecordHash",
+		"outputs": [
+			{
+				"components": [
+					{
+						"internalType": "string",
+						"name": "recordHash",
+						"type": "string"
+					},
+					{
+						"internalType": "uint256",
+						"name": "timestamp",
+						"type": "uint256"
+					}
+				],
+				"internalType": "struct HealthRecordLedger.RecordUpdate",
+				"name": "",
+				"type": "tuple"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "string",
+				"name": "",
+				"type": "string"
+			},
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"name": "patientRecords",
+		"outputs": [
+			{
+				"internalType": "string",
+				"name": "recordHash",
+				"type": "string"
+			},
+			{
+				"internalType": "uint256",
+				"name": "timestamp",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+];
+// ----------------------------------------------------
+
+/**
+ * Takes a full health record object, calculates its hash, and stores it on the blockchain.
+ * This creates a verifiable, timestamped snapshot of the patient's record.
+ * @param {string} patientUid - The UID of the patient.
+ * @param {object} fullHealthRecord - The complete, current health record object.
+ * @returns {object} An object indicating success and containing the transaction hash.
+ */
+export const notarizeHealthRecordOnChain = async (patientUid, fullHealthRecord) => {
+  // 1. Ensure we have a valid record to process.
+  if (!patientUid || !fullHealthRecord) {
+    throw new Error("Patient UID and health record data are required to notarize.");
+  }
+  console.log("Notarizing the following record for patient:", patientUid, fullHealthRecord);
+
+  // 2. Calculate the SHA-256 hash of the entire record.
+  // We stringify with consistent key order to ensure the hash is deterministic.
+  const recordString = JSON.stringify(fullHealthRecord, Object.keys(fullHealthRecord).sort());
+  const recordHash = CryptoJS.SHA256(recordString).toString();
+  console.log(`Calculated Hash: ${recordHash}`);
+
+  // 3. Send the hash to the blockchain via MetaMask.
+  try {
+    if (!window.ethereum) {
+      throw new Error("MetaMask is not installed. Please install it to use this feature.");
+    }
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(contractAddress, contractABI, signer);
+
+    console.log(`Sending hash to smart contract for patient ID: ${patientUid}`);
+    const tx = await contract.addRecordHash(patientUid, recordHash);
+    
+    // Wait for the transaction to be confirmed on the blockchain
+    await tx.wait(); 
+    
+    console.log("Notarization transaction successful!", tx);
+    return { success: true, txHash: tx.hash, recordHash: recordHash };
+
+  } catch (error) {
+    console.error("Blockchain notarization failed:", error);
+    // We re-throw the error so the component can display a message to the user.
+    throw error;
+  }
+};
+// ==================================================================
+// END: NEW BLOCKCHAIN INTEGRATION CODE
+// ==================================================================
