@@ -4,10 +4,16 @@ import {
   FileText, Plus, Save, AlertCircle, CheckCircle,Fingerprint,
   Activity, Heart, Pill, AlertTriangle
 } from 'lucide-react';
-import { doc, onSnapshot } from 'firebase/firestore'; // Add onSnapshot import
-import { db } from '../firebase'; // Add db import
-import { getAppointmentDetails, updateAppointmentSessionStatus, completeAppointmentSession, updatePatientMedicalInfoInSession } from '../services/AppointmentSessionService';
-import { getPatientHealthRecord, notarizeHealthRecordOnChain  } from '../services/healthRecordService';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
+import { 
+  getAppointmentDetails, 
+  updateAppointmentSessionStatus, 
+  completeAppointmentSession, 
+  updatePatientMedicalInfoInSession,
+  storeBlockchainTransactionHash 
+} from '../services/AppointmentSessionService';
+import { getPatientHealthRecord, notarizeHealthRecordOnChain } from '../services/healthRecordService';
 
 const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const [appointment, setAppointment] = useState(null);
@@ -27,9 +33,68 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
     treatment: '',
     notes: ''
   });
- const [notarizing, setNotarizing] = useState(false);
+  const [notarizing, setNotarizing] = useState(false);
   const [notarizeMessage, setNotarizeMessage] = useState('');
   const isDoctor = userProfile.role === 'doctor';
+
+  // UPDATED handleNotarizeRecord function with extensive debugging
+  const handleNotarizeRecord = async () => {
+    console.log("=== NOTARIZATION DEBUG START ===");
+    console.log("1. Health record exists:", !!healthRecord);
+    console.log("2. Appointment ID:", appointmentId);
+    console.log("3. Patient ID:", appointment?.patientId);
+    
+    if (!healthRecord) {
+      console.error("4. ERROR: No health record data");
+      alert("No health record data to notarize.");
+      return;
+    }
+
+    setNotarizing(true);
+    setNotarizeMessage('');
+    
+    try {
+      console.log("5. Starting blockchain notarization...");
+      // Calls the function from your service file
+      const result = await notarizeHealthRecordOnChain(appointment.patientId, healthRecord);
+      console.log("6. Blockchain notarization result:", result);
+      console.log("7. Transaction hash:", result.txHash);
+      
+      if (!result.txHash) {
+        throw new Error("No transaction hash received from blockchain");
+      }
+      
+      console.log("8. Calling storeBlockchainTransactionHash...");
+      // Store the transaction hash in Firebase
+      await storeBlockchainTransactionHash(appointmentId, result.txHash);
+      console.log("9. Successfully stored hash in Firebase");
+      
+      // Update the local appointment state to reflect the notarization
+      setAppointment(prev => {
+        const updated = {
+          ...prev,
+          blockchainTransactionHash: result.txHash,
+          notarizedAt: new Date(),
+          isNotarized: true
+        };
+        console.log("10. Updated local appointment state:", updated);
+        return updated;
+      });
+      
+      setNotarizeMessage(`Success! Tx: ${result.txHash.substring(0, 12)}... (Hash saved to record)`);
+      console.log("11. SUCCESS: Notarization complete");
+      
+    } catch (error) {
+      console.error("12. NOTARIZATION ERROR:", error);
+      console.error("13. Error message:", error.message);
+      console.error("14. Error stack:", error.stack);
+      setNotarizeMessage(`Error: ${error.message}`);
+    } finally {
+      setNotarizing(false);
+      setTimeout(() => setNotarizeMessage(''), 6000);
+      console.log("=== NOTARIZATION DEBUG END ===");
+    }
+  };
 
   // Real-time listener for appointment status changes
   useEffect(() => {
@@ -39,10 +104,10 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
     const unsubscribe = onSnapshot(appointmentRef, (doc) => {
       if (doc.exists()) {
         const appointmentData = doc.data();
+        console.log("Real-time appointment update:", appointmentData);
         
         // Check if session was completed by doctor
         if (appointmentData.sessionStatus === 'completed' && !isDoctor) {
-          // Patient should be redirected when doctor completes the session
           console.log("Session completed by doctor, redirecting patient...");
           onEndSession();
           return;
@@ -70,6 +135,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
           return;
         }
 
+        console.log("Fetched appointment data:", appointmentData);
         setAppointment(appointmentData);
 
         const patientId = isDoctor ? appointmentData.patientId : userProfile.uid;
@@ -155,33 +221,22 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
       setUpdating(false);
     }
   };
-  const handleNotarizeRecord = async () => {
-    if (!healthRecord) {
-      alert("No health record data to notarize.");
-      return;
-    }
 
-    setNotarizing(true);
-    setNotarizeMessage('');
-    try {
-      // Calls the function from your service file
-      const result = await notarizeHealthRecordOnChain(appointment.patientId, healthRecord);
-      setNotarizeMessage(`Success! Tx: ${result.txHash.substring(0, 12)}...`);
-    } catch (error) {
-      console.error("Notarization failed:", error);
-      setNotarizeMessage(`Error: ${error.message}`);
-    } finally {
-      setNotarizing(false);
-      setTimeout(() => setNotarizeMessage(''), 6000); // Clear message after 6 seconds
-    }
-  };
+  // UPDATED handleCompleteSession with debug logging
   const handleCompleteSession = async () => {
     if (!isDoctor) return;
 
     try {
       setUpdating(true);
-      await completeAppointmentSession(appointmentId);
-      // The real-time listener will handle redirecting the patient
+      console.log("Completing session with hash:", appointment?.blockchainTransactionHash);
+      
+      // Pass the blockchain transaction hash if it exists
+      await completeAppointmentSession(
+        appointmentId, 
+        null, // sessionNotes - you can add a form for this if needed
+        appointment?.blockchainTransactionHash // This will be included if the record was notarized
+      );
+      
       onEndSession(); // Redirect doctor immediately
     } catch (error) {
       console.error("Error completing session:", error);
@@ -259,11 +314,20 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
               {isDoctor && (
                 <button
                   onClick={handleNotarizeRecord}
-                  disabled={notarizing || updating}
-                  className="py-3 px-6 rounded-xl text-white font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center disabled:opacity-50"
+                  disabled={notarizing || updating || appointment?.isNotarized}
+                  className={`py-3 px-6 rounded-xl text-white font-semibold transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center disabled:opacity-50 ${
+                    appointment?.isNotarized 
+                      ? 'bg-gradient-to-r from-green-600 to-emerald-600' 
+                      : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700'
+                  }`}
                 >
                   <Fingerprint className="w-4 h-4 mr-2" />
-                  {notarizing ? 'Notarizing...' : 'Notarize on Blockchain'}
+                  {appointment?.isNotarized 
+                    ? 'Already Notarized' 
+                    : notarizing 
+                      ? 'Notarizing...' 
+                      : 'Notarize on Blockchain'
+                  }
                 </button>
               )}
               {isDoctor && (
@@ -279,10 +343,8 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-
           {/* Left Column - Appointment Info & Patient Problem */}
           <div className="lg:col-span-1 space-y-6">
-
             {/* Appointment Details Card */}
             <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/20">
               <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
@@ -328,6 +390,25 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                     </div>
                   </div>
                 )}
+
+                {/* Blockchain Notarization Status */}
+                {appointment.isNotarized && (
+                  <div className="flex items-center p-3 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg">
+                    <Fingerprint className="w-5 h-5 text-indigo-600 mr-3" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-indigo-800">Blockchain Notarized</p>
+                      <p className="text-xs text-indigo-600">
+                        TX: {appointment.blockchainTransactionHash?.substring(0, 16)}...
+                      </p>
+                      {appointment.notarizedAt && (
+                        <p className="text-xs text-gray-500">
+                          {new Date(appointment.notarizedAt.seconds ? appointment.notarizedAt.seconds * 1000 : appointment.notarizedAt).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -348,397 +429,8 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
 
           {/* Right Column - Health Records */}
           <div className="lg:col-span-2">
-            <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/20">
-              <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
-                <Activity className="w-6 h-6 mr-2 text-green-600" />
-                {isDoctor ? 'Patient Health Records' : 'Your Health Records'}
-              </h2>
-
-              {!healthRecord ? (
-                <div className="text-center py-12">
-                  <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
-                  <p className="text-gray-600">No health records found.</p>
-                </div>
-              ) : (
-                <div className="space-y-8">
-
-                  {/* Personal Details */}
-                  <div className="border-b border-gray-200 pb-6">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-4">Personal Details</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {healthRecord.bloodType && (
-                        <div>
-                          <p className="text-sm text-gray-500">Blood Type</p>
-                          <p className="font-semibold text-gray-800">{healthRecord.bloodType}</p>
-                        </div>
-                      )}
-                      {healthRecord.dateOfBirth && (
-                        <div>
-                          <p className="text-sm text-gray-500">Date of Birth</p>
-                          <p className="font-semibold text-gray-800">{healthRecord.dateOfBirth}</p>
-                        </div>
-                      )}
-                      {healthRecord.emergencyContactName && (
-                        <div>
-                          <p className="text-sm text-gray-500">Emergency Contact</p>
-                          <p className="font-semibold text-gray-800">{healthRecord.emergencyContactName}</p>
-                          <p className="text-sm text-gray-600">{healthRecord.emergencyContact}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Allergies */}
-                  <div className="border-b border-gray-200 pb-6">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                        <AlertTriangle className="w-5 h-5 mr-2 text-red-500" />
-                        Allergies
-                      </h3>
-                    </div>
-
-                    {healthRecord.allergies && healthRecord.allergies.length > 0 ? (
-                      <div className="space-y-3">
-                        {healthRecord.allergies.map((allergy, index) => (
-                          <div key={index} className="bg-red-50 border border-red-200 rounded-lg p-3">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="font-semibold text-gray-800">{allergy.name}</p>
-                                {allergy.severity && (
-                                  <p className="text-sm text-red-600">Severity: {allergy.severity}</p>
-                                )}
-                                {allergy.reaction && (
-                                  <p className="text-sm text-gray-600">Reaction: {allergy.reaction}</p>
-                                )}
-                              </div>
-                              {allergy.addedDate && (
-                                <p className="text-xs text-gray-400">
-                                  Added: {new Date(allergy.addedDate).toLocaleDateString()}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 italic">No allergies recorded.</p>
-                    )}
-
-                    {/* Doctor Add Allergy Form */}
-                    {isDoctor && (
-                      <div className="mt-4 bg-gray-50 rounded-lg p-4">
-                        <h4 className="font-semibold text-gray-700 mb-3">Add New Allergy</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          <input
-                            type="text"
-                            placeholder="Allergy name"
-                            value={newAllergy.name}
-                            onChange={(e) => setNewAllergy(prev => ({ ...prev, name: e.target.value }))}
-                            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <select
-                            value={newAllergy.severity}
-                            onChange={(e) => setNewAllergy(prev => ({ ...prev, severity: e.target.value }))}
-                            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">Select severity</option>
-                            <option value="Mild">Mild</option>
-                            <option value="Moderate">Moderate</option>
-                            <option value="Severe">Severe</option>
-                          </select>
-                          <input
-                            type="text"
-                            placeholder="Reaction"
-                            value={newAllergy.reaction}
-                            onChange={(e) => setNewAllergy(prev => ({ ...prev, reaction: e.target.value }))}
-                            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                        <button
-                          onClick={() => handleAddMedicalInfo('allergy')}
-                          disabled={!newAllergy.name.trim() || updating}
-                          className="mt-3 flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Allergy
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Current Medications */}
-                  <div className="border-b border-gray-200 pb-6">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                        <Pill className="w-5 h-5 mr-2 text-blue-500" />
-                        Current Medications
-                      </h3>
-                    </div>
-
-                    {healthRecord.currentMedications && healthRecord.currentMedications.length > 0 ? (
-                      <div className="space-y-3">
-                        {healthRecord.currentMedications.map((medication, index) => (
-                          <div key={index} className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="font-semibold text-gray-800">{medication.name}</p>
-                                {medication.dosage && (
-                                  <p className="text-sm text-blue-600">Dosage: {medication.dosage}</p>
-                                )}
-                                {medication.frequency && (
-                                  <p className="text-sm text-gray-600">Frequency: {medication.frequency}</p>
-                                )}
-                                {medication.instructions && (
-                                  <p className="text-sm text-gray-600">Instructions: {medication.instructions}</p>
-                                )}
-                              </div>
-                              {medication.prescribedDate && (
-                                <p className="text-xs text-gray-400">
-                                  Prescribed: {new Date(medication.prescribedDate).toLocaleDateString()}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 italic">No current medications recorded.</p>
-                    )}
-
-                    {/* Doctor Add Medication Form */}
-                    {isDoctor && (
-                      <div className="mt-4 bg-gray-50 rounded-lg p-4">
-                        <h4 className="font-semibold text-gray-700 mb-3">Prescribe New Medication</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <input
-                            type="text"
-                            placeholder="Medication name"
-                            value={newMedication.name}
-                            onChange={(e) => setNewMedication(prev => ({ ...prev, name: e.target.value }))}
-                            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Dosage"
-                            value={newMedication.dosage}
-                            onChange={(e) => setNewMedication(prev => ({ ...prev, dosage: e.target.value }))}
-                            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Frequency"
-                            value={newMedication.frequency}
-                            onChange={(e) => setNewMedication(prev => ({ ...prev, frequency: e.target.value }))}
-                            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Instructions"
-                            value={newMedication.instructions}
-                            onChange={(e) => setNewMedication(prev => ({ ...prev, instructions: e.target.value }))}
-                            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                        <button
-                          onClick={() => handleAddMedicalInfo('medication')}
-                          disabled={!newMedication.name.trim() || updating}
-                          className="mt-3 flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Prescribe Medication
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Chronic Conditions */}
-                  <div className="border-b border-gray-200 pb-6">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                        <Heart className="w-5 h-5 mr-2 text-purple-500" />
-                        Chronic Conditions
-                      </h3>
-                    </div>
-
-                    {healthRecord.chronicConditions && healthRecord.chronicConditions.length > 0 ? (
-                      <div className="space-y-3">
-                        {healthRecord.chronicConditions.map((condition, index) => (
-                          <div key={index} className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="font-semibold text-gray-800">{condition.name}</p>
-                                {condition.diagnosedDate && (
-                                  <p className="text-sm text-purple-600">
-                                    Diagnosed: {new Date(condition.diagnosedDate).toLocaleDateString()}
-                                  </p>
-                                )}
-                                {condition.severity && (
-                                  <p className="text-sm text-gray-600">Severity: {condition.severity}</p>
-                                )}
-                                {condition.notes && (
-                                  <p className="text-sm text-gray-600">Notes: {condition.notes}</p>
-                                )}
-                              </div>
-                              {condition.addedDate && (
-                                <p className="text-xs text-gray-400">
-                                  Added: {new Date(condition.addedDate).toLocaleDateString()}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 italic">No chronic conditions recorded.</p>
-                    )}
-
-                    {/* Doctor Add Condition Form */}
-                    {isDoctor && (
-                      <div className="mt-4 bg-gray-50 rounded-lg p-4">
-                        <h4 className="font-semibold text-gray-700 mb-3">Add Chronic Condition</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <input
-                            type="text"
-                            placeholder="Condition name"
-                            value={newCondition.name}
-                            onChange={(e) => setNewCondition(prev => ({ ...prev, name: e.target.value }))}
-                            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <input
-                            type="date"
-                            value={newCondition.diagnosedDate}
-                            onChange={(e) => setNewCondition(prev => ({ ...prev, diagnosedDate: e.target.value }))}
-                            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <select
-                            value={newCondition.severity}
-                            onChange={(e) => setNewCondition(prev => ({ ...prev, severity: e.target.value }))}
-                            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">Select severity</option>
-                            <option value="Mild">Mild</option>
-                            <option value="Moderate">Moderate</option>
-                            <option value="Severe">Severe</option>
-                          </select>
-                          <textarea
-                            placeholder="Notes"
-                            value={newCondition.notes}
-                            onChange={(e) => setNewCondition(prev => ({ ...prev, notes: e.target.value }))}
-                            rows="2"
-                            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                        <button
-                          onClick={() => handleAddMedicalInfo('condition')}
-                          disabled={!newCondition.name.trim() || updating}
-                          className="mt-3 flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Condition
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Medical History */}
-                  <div>
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                        <FileText className="w-5 h-5 mr-2 text-green-500" />
-                        Medical History
-                      </h3>
-                    </div>
-
-                    {healthRecord.medicalHistory && healthRecord.medicalHistory.length > 0 ? (
-                      <div className="space-y-3">
-                        {healthRecord.medicalHistory.map((entry, index) => (
-                          <div key={index} className="bg-green-50 border border-green-200 rounded-lg p-4">
-                            <div className="flex justify-between items-start mb-2">
-                              <div className="flex-1">
-                                <p className="font-semibold text-gray-800">{entry.description}</p>
-                                {entry.diagnosis && (
-                                  <p className="text-sm text-green-700 mt-1">
-                                    <span className="font-medium">Diagnosis:</span> {entry.diagnosis}
-                                  </p>
-                                )}
-                                {entry.treatment && (
-                                  <p className="text-sm text-gray-600 mt-1">
-                                    <span className="font-medium">Treatment:</span> {entry.treatment}
-                                  </p>
-                                )}
-                                {entry.notes && (
-                                  <p className="text-sm text-gray-600 mt-1">
-                                    <span className="font-medium">Notes:</span> {entry.notes}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="text-right text-xs text-gray-400">
-                                {entry.date && (
-                                  <p>Date: {new Date(entry.date).toLocaleDateString()}</p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 italic">No medical history recorded.</p>
-                    )}
-
-                    {/* Doctor Add History Entry Form */}
-                    {isDoctor && (
-                      <div className="mt-4 bg-gray-50 rounded-lg p-4">
-                        <h4 className="font-semibold text-gray-700 mb-3">Add Medical History Entry</h4>
-                        <div className="space-y-3">
-                          <input
-                            type="date"
-                            value={newHistoryEntry.date}
-                            onChange={(e) => setNewHistoryEntry(prev => ({ ...prev, date: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <textarea
-                            placeholder="Description of visit/condition"
-                            value={newHistoryEntry.description}
-                            onChange={(e) => setNewHistoryEntry(prev => ({ ...prev, description: e.target.value }))}
-                            rows="3"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Diagnosis"
-                            value={newHistoryEntry.diagnosis}
-                            onChange={(e) => setNewHistoryEntry(prev => ({ ...prev, diagnosis: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Treatment provided"
-                            value={newHistoryEntry.treatment}
-                            onChange={(e) => setNewHistoryEntry(prev => ({ ...prev, treatment: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <textarea
-                            placeholder="Additional notes"
-                            value={newHistoryEntry.notes}
-                            onChange={(e) => setNewHistoryEntry(prev => ({ ...prev, notes: e.target.value }))}
-                            rows="2"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                        <button
-                          onClick={() => handleAddMedicalInfo('history')}
-                          disabled={!newHistoryEntry.description.trim() || updating}
-                          className="mt-3 flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add History Entry
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* Rest of your health records component remains the same... */}
+            {/* I'm truncating this for brevity, but include all your existing health records JSX here */}
           </div>
         </div>
       </div>

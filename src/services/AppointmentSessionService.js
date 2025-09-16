@@ -71,12 +71,35 @@ export const updateAppointmentSessionStatus = async (appointmentId, sessionStatu
 };
 
 /**
+ * Stores the blockchain transaction hash for an appointment
+ * @param {string} appointmentId - The appointment ID
+ * @param {string} transactionHash - The blockchain transaction hash
+ * @returns {Promise} Promise that resolves when hash is stored
+ */
+export const storeBlockchainTransactionHash = async (appointmentId, transactionHash) => {
+  try {
+    const appointmentRef = doc(db, "appointments", appointmentId);
+    await updateDoc(appointmentRef, {
+      blockchainTransactionHash: transactionHash,
+      notarizedAt: new Date(),
+      isNotarized: true,
+      updatedAt: new Date()
+    });
+    console.log(`Blockchain transaction hash ${transactionHash} stored for appointment ${appointmentId}`);
+  } catch (error) {
+    console.error("Error storing blockchain transaction hash:", error);
+    throw error;
+  }
+};
+
+/**
  * Completes an appointment session
  * @param {string} appointmentId - The appointment ID
  * @param {Object} sessionNotes - Optional notes about the session
+ * @param {string} transactionHash - Optional blockchain transaction hash
  * @returns {Promise} Promise that resolves when appointment is completed
  */
-export const completeAppointmentSession = async (appointmentId, sessionNotes = null) => {
+export const completeAppointmentSession = async (appointmentId, sessionNotes = null, transactionHash = null) => {
   try {
     const appointmentRef = doc(db, "appointments", appointmentId);
     const updateData = {
@@ -88,6 +111,13 @@ export const completeAppointmentSession = async (appointmentId, sessionNotes = n
     
     if (sessionNotes) {
       updateData.sessionNotes = sessionNotes;
+    }
+    
+    // Store blockchain transaction hash if provided
+    if (transactionHash) {
+      updateData.blockchainTransactionHash = transactionHash;
+      updateData.notarizedAt = new Date();
+      updateData.isNotarized = true;
     }
     
     await updateDoc(appointmentRef, updateData);

@@ -2,7 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth"; // You need this for login
 import { getFirestore } from "firebase/firestore"; // You'll need this for data
-
+import { getFunctions } from "firebase/functions";
 // Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyCsF34srMvcq9k1QCcaPP8HSehQRi1-pgE",
@@ -20,3 +20,5 @@ const app = initializeApp(firebaseConfig);
 // Initialize and export Firebase services so other files can use them
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+const functions = getFunctions(app);
+export {functions };
