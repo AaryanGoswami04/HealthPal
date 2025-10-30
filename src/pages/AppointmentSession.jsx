@@ -522,24 +522,351 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
               </div>
             </div>
           </div>
+{/* Right Column - Health Records */}
+<div className="lg:col-span-2 space-y-6">
+  <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/20">
+    <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+      <User className="w-6 h-6 mr-2 text-blue-600" />
+      Personal Information
+    </h2>
+    {healthRecord ? (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <p className="text-sm text-gray-500">Blood Type</p>
+          <p className="font-semibold text-gray-800">{healthRecord.bloodType || 'Not specified'}</p>
+        </div>
+        <div>
+          <p className="text-sm text-gray-500">Date of Birth</p>
+          <p className="font-semibold text-gray-800">{healthRecord.dateOfBirth || 'Not specified'}</p>
+        </div>
+        <div>
+          <p className="text-sm text-gray-500">Emergency Contact</p>
+          <p className="font-semibold text-gray-800">{healthRecord.emergencyContactName || 'Not specified'}</p>
+        </div>
+        <div>
+          <p className="text-sm text-gray-500">Emergency Phone</p>
+          <p className="font-semibold text-gray-800">{healthRecord.emergencyContact || 'Not specified'}</p>
+        </div>
+      </div>
+    ) : (
+      <p className="text-gray-500">Loading personal information...</p>
+    )}
+  </div>
 
-          {/* Right Column - Health Records - ADD YOUR EXISTING HEALTH RECORDS UI HERE */}
-          <div className="lg:col-span-2">
-            <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/20">
-              <h2 className="text-xl font-bold text-gray-800 mb-4">Health Record</h2>
-              {healthRecord ? (
-                <div className="text-gray-700">
-                  <p>Health record loaded successfully!</p>
-                  {/* Add your full health record display UI here */}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-500">No health record available</p>
-                </div>
-              )}
+  {/* Allergies */}
+  <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/20">
+    <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+      <AlertTriangle className="w-6 h-6 mr-2 text-red-600" />
+      Allergies
+    </h2>
+    {healthRecord?.allergies && healthRecord.allergies.length > 0 ? (
+      <div className="space-y-3">
+        {healthRecord.allergies.map((allergy, index) => (
+          <div key={index} className="p-4 bg-red-50 border border-red-200 rounded-xl">
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <p className="font-semibold text-gray-800">{allergy.name}</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  <span className="font-medium">Severity:</span> {allergy.severity}
+                </p>
+                {allergy.reaction && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    <span className="font-medium">Reaction:</span> {allergy.reaction}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
+        ))}
+      </div>
+    ) : (
+      <p className="text-gray-500">No allergies recorded</p>
+    )}
+    
+    {/* Add Allergy Form (Doctor only) */}
+    {isDoctor && (
+      <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
+        <h3 className="font-semibold text-gray-800 mb-3">Add New Allergy</h3>
+        <div className="space-y-3">
+          <input
+            type="text"
+            placeholder="Allergy name"
+            value={newAllergy.name}
+            onChange={(e) => setNewAllergy({...newAllergy, name: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <input
+            type="text"
+            placeholder="Severity (e.g., Mild, Moderate, Severe)"
+            value={newAllergy.severity}
+            onChange={(e) => setNewAllergy({...newAllergy, severity: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <input
+            type="text"
+            placeholder="Reaction"
+            value={newAllergy.reaction}
+            onChange={(e) => setNewAllergy({...newAllergy, reaction: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <button
+            onClick={() => handleAddMedicalInfo('allergy')}
+            disabled={updating || !newAllergy.name.trim()}
+            className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Allergy
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+
+  {/* Current Medications */}
+  <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/20">
+    <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+      <Pill className="w-6 h-6 mr-2 text-green-600" />
+      Current Medications
+    </h2>
+    {healthRecord?.currentMedications && healthRecord.currentMedications.length > 0 ? (
+      <div className="space-y-3">
+        {healthRecord.currentMedications.map((med, index) => (
+          <div key={index} className="p-4 bg-green-50 border border-green-200 rounded-xl">
+            <p className="font-semibold text-gray-800">{med.name}</p>
+            <p className="text-sm text-gray-600 mt-1">
+              <span className="font-medium">Dosage:</span> {med.dosage}
+            </p>
+            <p className="text-sm text-gray-600">
+              <span className="font-medium">Frequency:</span> {med.frequency}
+            </p>
+            {med.instructions && (
+              <p className="text-sm text-gray-600 mt-1">
+                <span className="font-medium">Instructions:</span> {med.instructions}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    ) : (
+      <p className="text-gray-500">No current medications</p>
+    )}
+
+    {/* Add Medication Form (Doctor only) */}
+    {isDoctor && (
+      <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
+        <h3 className="font-semibold text-gray-800 mb-3">Add New Medication</h3>
+        <div className="space-y-3">
+          <input
+            type="text"
+            placeholder="Medication name"
+            value={newMedication.name}
+            onChange={(e) => setNewMedication({...newMedication, name: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <input
+            type="text"
+            placeholder="Dosage"
+            value={newMedication.dosage}
+            onChange={(e) => setNewMedication({...newMedication, dosage: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <input
+            type="text"
+            placeholder="Frequency"
+            value={newMedication.frequency}
+            onChange={(e) => setNewMedication({...newMedication, frequency: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <input
+            type="text"
+            placeholder="Instructions"
+            value={newMedication.instructions}
+            onChange={(e) => setNewMedication({...newMedication, instructions: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <button
+            onClick={() => handleAddMedicalInfo('medication')}
+            disabled={updating || !newMedication.name.trim()}
+            className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Medication
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+
+  {/* Medical Conditions */}
+  <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/20">
+    <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+      <Activity className="w-6 h-6 mr-2 text-purple-600" />
+      Medical Conditions
+    </h2>
+    {healthRecord?.conditions && healthRecord.conditions.length > 0 ? (
+      <div className="space-y-3">
+        {healthRecord.conditions.map((condition, index) => (
+          <div key={index} className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
+            <p className="font-semibold text-gray-800">{condition.name}</p>
+            {condition.diagnosedDate && (
+              <p className="text-sm text-gray-600 mt-1">
+                <span className="font-medium">Diagnosed:</span> {condition.diagnosedDate}
+              </p>
+            )}
+            {condition.severity && (
+              <p className="text-sm text-gray-600">
+                <span className="font-medium">Severity:</span> {condition.severity}
+              </p>
+            )}
+            {condition.notes && (
+              <p className="text-sm text-gray-600 mt-1">
+                <span className="font-medium">Notes:</span> {condition.notes}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    ) : (
+      <p className="text-gray-500">No medical conditions recorded</p>
+    )}
+
+    {/* Add Condition Form (Doctor only) */}
+    {isDoctor && (
+      <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
+        <h3 className="font-semibold text-gray-800 mb-3">Add New Condition</h3>
+        <div className="space-y-3">
+          <input
+            type="text"
+            placeholder="Condition name"
+            value={newCondition.name}
+            onChange={(e) => setNewCondition({...newCondition, name: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <input
+            type="date"
+            placeholder="Diagnosed date"
+            value={newCondition.diagnosedDate}
+            onChange={(e) => setNewCondition({...newCondition, diagnosedDate: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <input
+            type="text"
+            placeholder="Severity"
+            value={newCondition.severity}
+            onChange={(e) => setNewCondition({...newCondition, severity: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <textarea
+            placeholder="Notes"
+            value={newCondition.notes}
+            onChange={(e) => setNewCondition({...newCondition, notes: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            rows="3"
+          />
+          <button
+            onClick={() => handleAddMedicalInfo('condition')}
+            disabled={updating || !newCondition.name.trim()}
+            className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Condition
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+
+  {/* Medical History */}
+  <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/20">
+    <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+      <FileText className="w-6 h-6 mr-2 text-orange-600" />
+      Medical History
+    </h2>
+    {healthRecord?.medicalHistory && healthRecord.medicalHistory.length > 0 ? (
+      <div className="space-y-3">
+        {healthRecord.medicalHistory.map((entry, index) => (
+          <div key={index} className="p-4 bg-orange-50 border border-orange-200 rounded-xl">
+            <div className="flex items-start justify-between mb-2">
+              <p className="text-sm text-gray-500">{entry.date}</p>
+              {entry.addedBy && (
+                <p className="text-xs text-gray-400">Added by: {entry.addedBy}</p>
+              )}
+            </div>
+            <p className="font-semibold text-gray-800 mb-2">{entry.description}</p>
+            {entry.diagnosis && (
+              <p className="text-sm text-gray-600 mb-1">
+                <span className="font-medium">Diagnosis:</span> {entry.diagnosis}
+              </p>
+            )}
+            {entry.treatment && (
+              <p className="text-sm text-gray-600 mb-1">
+                <span className="font-medium">Treatment:</span> {entry.treatment}
+              </p>
+            )}
+            {entry.notes && (
+              <p className="text-sm text-gray-600">
+                <span className="font-medium">Notes:</span> {entry.notes}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    ) : (
+      <p className="text-gray-500">No medical history recorded</p>
+    )}
+
+    {/* Add History Entry Form (Doctor only) */}
+    {isDoctor && (
+      <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
+        <h3 className="font-semibold text-gray-800 mb-3">Add Medical History Entry</h3>
+        <div className="space-y-3">
+          <input
+            type="date"
+            value={newHistoryEntry.date}
+            onChange={(e) => setNewHistoryEntry({...newHistoryEntry, date: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <input
+            type="text"
+            placeholder="Description"
+            value={newHistoryEntry.description}
+            onChange={(e) => setNewHistoryEntry({...newHistoryEntry, description: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <input
+            type="text"
+            placeholder="Diagnosis"
+            value={newHistoryEntry.diagnosis}
+            onChange={(e) => setNewHistoryEntry({...newHistoryEntry, diagnosis: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <input
+            type="text"
+            placeholder="Treatment"
+            value={newHistoryEntry.treatment}
+            onChange={(e) => setNewHistoryEntry({...newHistoryEntry, treatment: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <textarea
+            placeholder="Additional notes"
+            value={newHistoryEntry.notes}
+            onChange={(e) => setNewHistoryEntry({...newHistoryEntry, notes: e.target.value})}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            rows="3"
+          />
+          <button
+            onClick={() => handleAddMedicalInfo('history')}
+            disabled={updating || !newHistoryEntry.description.trim()}
+            className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add History Entry
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+</div>
         </div>
       </div>
     </div>
