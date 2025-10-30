@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft, User, Calendar, Clock, Stethoscope,
-  FileText, Plus, Save, AlertCircle, CheckCircle,Fingerprint,
+  FileText, Plus, Save, AlertCircle, CheckCircle, Fingerprint,
   Activity, Heart, Pill, AlertTriangle
 } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { db } from '../firebase';
 import { 
   getAppointmentDetails, 
@@ -13,7 +14,7 @@ import {
   updatePatientMedicalInfoInSession,
   storeBlockchainTransactionHash 
 } from '../services/AppointmentSessionService';
-import { getPatientHealthRecord, notarizeHealthRecordOnChain } from '../services/healthRecordService';
+import { getPatientHealthRecord, createNewHealthRecord, notarizeHealthRecordOnChain } from '../services/healthRecordService';
 
 const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const [appointment, setAppointment] = useState(null);
@@ -21,6 +22,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
+  const [authChecked, setAuthChecked] = useState(false);
 
   // Doctor's medical update forms
   const [newAllergy, setNewAllergy] = useState({ name: '', severity: '', reaction: '' });
@@ -35,9 +37,135 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   });
   const [notarizing, setNotarizing] = useState(false);
   const [notarizeMessage, setNotarizeMessage] = useState('');
-  const isDoctor = userProfile.role === 'doctor';
+  const isDoctor = userProfile?.role === 'doctor';
 
-  // UPDATED handleNotarizeRecord function with extensive debugging
+  // Authentication guard - Check auth FIRST before doing anything
+  useEffect(() => {
+    const auth = getAuth();
+    const currentUser = auth.currentUser;
+    
+    console.log("=== AUTHENTICATION CHECK ===");
+    console.log("Current user:", currentUser);
+    console.log("User profile passed:", userProfile);
+    
+    if (!currentUser) {
+      console.error("❌ NO AUTHENTICATED USER FOUND");
+      alert("Your session has expired. Please log in again.");
+      onEndSession();
+      return;
+    }
+    
+    if (!userProfile || !userProfile.uid) {
+      console.error("❌ NO USER PROFILE PROVIDED");
+      alert("Unable to load user profile. Please try again.");
+      onEndSession();
+      return;
+    }
+    
+    if (currentUser.uid !== userProfile.uid) {
+      console.error("❌ USER MISMATCH", {
+        authUid: currentUser.uid,
+        profileUid: userProfile.uid
+      });
+      alert("Session mismatch detected. Please log in again.");
+      onEndSession();
+      return;
+    }
+    
+    console.log("✅ Authentication verified successfully");
+    console.log("User UID:", currentUser.uid);
+    console.log("User email:", currentUser.email);
+    setAuthChecked(true);
+  }, [userProfile, onEndSession]);
+
+  // UPDATED: Fetch data with proper health record handling
+  useEffect(() => {
+    if (!authChecked) {
+      console.log("Waiting for authentication check...");
+      return;
+    }
+
+    const fetchSessionData = async () => {
+      try {
+        setLoading(true);
+        
+        console.log("=== FETCHING SESSION DATA ===");
+        console.log("Appointment ID:", appointmentId);
+        console.log("User profile:", userProfile);
+        
+        const appointmentData = await getAppointmentDetails(appointmentId);
+
+        if (!appointmentData) {
+          console.error("❌ Appointment data is null/undefined");
+          alert("Appointment not found. Please try again.");
+          setLoading(false);
+          return;
+        }
+
+        console.log("✅ Fetched appointment data:", appointmentData);
+        setAppointment(appointmentData);
+
+        // Determine which patient ID to use
+        const patientId = isDoctor ? appointmentData.patientId : userProfile.uid;
+        console.log("=== FETCHING HEALTH RECORD ===");
+        console.log("Patient ID:", patientId);
+        console.log("Is Doctor:", isDoctor);
+        
+        // Fetch health record with proper error handling
+        try {
+          console.log("Calling getPatientHealthRecord...");
+          let healthData = await getPatientHealthRecord(patientId);
+          
+          if (!healthData) {
+            console.warn("⚠️ No health record found, creating new one...");
+            // Create a new health record if it doesn't exist
+            healthData = await createNewHealthRecord(patientId);
+            console.log("✅ New health record created:", healthData);
+          } else {
+            console.log("✅ Health record fetched successfully:", healthData);
+          }
+          
+          setHealthRecord(healthData);
+        } catch (healthError) {
+          console.error("❌ Error fetching/creating health record:", healthError);
+          console.error("Error code:", healthError.code);
+          console.error("Error message:", healthError.message);
+          
+          // Show user-friendly error
+          if (healthError.code === 'permission-denied') {
+            alert("Unable to access health records. Please check your permissions.");
+          } else {
+            alert(`Error loading health records: ${healthError.message}`);
+          }
+          
+          // Set an empty health record so the UI doesn't break
+          setHealthRecord(null);
+        }
+
+        // Update session status if doctor
+        if (isDoctor && appointmentData.sessionStatus !== 'active') {
+          await updateAppointmentSessionStatus(appointmentId, 'active');
+          setAppointment(prev => ({ ...prev, sessionStatus: 'active' }));
+        }
+
+      } catch (error) {
+        console.error("❌ CATCH ERROR in fetchSessionData:", error);
+        console.error("Error code:", error.code);
+        console.error("Error message:", error.message);
+        alert(`Error loading appointment session: ${error.message}`);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (appointmentId && userProfile) {
+      fetchSessionData();
+    } else {
+      console.error("❌ Missing required data:", { appointmentId, userProfile });
+      setLoading(false);
+    }
+  }, [appointmentId, userProfile, isDoctor, authChecked]);
+
   const handleNotarizeRecord = async () => {
     console.log("=== NOTARIZATION DEBUG START ===");
     console.log("1. Health record exists:", !!healthRecord);
@@ -55,7 +183,6 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
     
     try {
       console.log("5. Starting blockchain notarization...");
-      // Calls the function from your service file
       const result = await notarizeHealthRecordOnChain(appointment.patientId, healthRecord);
       console.log("6. Blockchain notarization result:", result);
       console.log("7. Transaction hash:", result.txHash);
@@ -65,11 +192,9 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
       }
       
       console.log("8. Calling storeBlockchainTransactionHash...");
-      // Store the transaction hash in Firebase
       await storeBlockchainTransactionHash(appointmentId, result.txHash);
       console.log("9. Successfully stored hash in Firebase");
       
-      // Update the local appointment state to reflect the notarization
       setAppointment(prev => {
         const updated = {
           ...prev,
@@ -98,7 +223,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
 
   // Real-time listener for appointment status changes
   useEffect(() => {
-    if (!appointmentId) return;
+    if (!appointmentId || !authChecked) return;
 
     const appointmentRef = doc(db, "appointments", appointmentId);
     const unsubscribe = onSnapshot(appointmentRef, (doc) => {
@@ -106,14 +231,12 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
         const appointmentData = doc.data();
         console.log("Real-time appointment update:", appointmentData);
         
-        // Check if session was completed by doctor
         if (appointmentData.sessionStatus === 'completed' && !isDoctor) {
           console.log("Session completed by doctor, redirecting patient...");
           onEndSession();
           return;
         }
         
-        // Update appointment state
         setAppointment(prev => prev ? { ...prev, ...appointmentData } : null);
       }
     }, (error) => {
@@ -121,45 +244,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
     });
 
     return () => unsubscribe();
-  }, [appointmentId, isDoctor, onEndSession]);
-
-  useEffect(() => {
-    const fetchSessionData = async () => {
-      try {
-        setLoading(true);
-        const appointmentData = await getAppointmentDetails(appointmentId);
-
-        if (!appointmentData) {
-          console.error("ERROR: appointmentData is null/undefined");
-          setLoading(false);
-          return;
-        }
-
-        console.log("Fetched appointment data:", appointmentData);
-        setAppointment(appointmentData);
-
-        const patientId = isDoctor ? appointmentData.patientId : userProfile.uid;
-        const healthData = await getPatientHealthRecord(patientId);
-        setHealthRecord(healthData);
-
-        if (isDoctor && appointmentData.sessionStatus !== 'active') {
-          await updateAppointmentSessionStatus(appointmentId, 'active');
-          setAppointment(prev => ({ ...prev, sessionStatus: 'active' }));
-        }
-
-      } catch (error) {
-        console.error("CATCH ERROR in fetchSessionData:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (appointmentId && userProfile) {
-      fetchSessionData();
-    } else {
-      setLoading(false);
-    }
-  }, [appointmentId, userProfile, isDoctor]);
+  }, [appointmentId, isDoctor, onEndSession, authChecked]);
 
   const handleAddMedicalInfo = async (type) => {
     if (!isDoctor) return;
@@ -222,7 +307,6 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
     }
   };
 
-  // UPDATED handleCompleteSession with debug logging
   const handleCompleteSession = async () => {
     if (!isDoctor) return;
 
@@ -230,14 +314,13 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
       setUpdating(true);
       console.log("Completing session with hash:", appointment?.blockchainTransactionHash);
       
-      // Pass the blockchain transaction hash if it exists
       await completeAppointmentSession(
         appointmentId, 
-        null, // sessionNotes - you can add a form for this if needed
-        appointment?.blockchainTransactionHash // This will be included if the record was notarized
+        null,
+        appointment?.blockchainTransactionHash
       );
       
-      onEndSession(); // Redirect doctor immediately
+      onEndSession();
     } catch (error) {
       console.error("Error completing session:", error);
     } finally {
@@ -248,6 +331,18 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const handleEndSession = () => {
     onEndSession();
   };
+
+  // Show loading while checking authentication
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-xl text-gray-600">Verifying authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -280,6 +375,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
+        {/* Rest of your JSX - keeping it exactly as you had it */}
         <header className="mb-8 flex items-center justify-between">
             <div className="flex items-center">
                 <button
@@ -427,10 +523,22 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
             </div>
           </div>
 
-          {/* Right Column - Health Records */}
+          {/* Right Column - Health Records - ADD YOUR EXISTING HEALTH RECORDS UI HERE */}
           <div className="lg:col-span-2">
-            {/* Rest of your health records component remains the same... */}
-            {/* I'm truncating this for brevity, but include all your existing health records JSX here */}
+            <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/20">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">Health Record</h2>
+              {healthRecord ? (
+                <div className="text-gray-700">
+                  <p>Health record loaded successfully!</p>
+                  {/* Add your full health record display UI here */}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-500">No health record available</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
