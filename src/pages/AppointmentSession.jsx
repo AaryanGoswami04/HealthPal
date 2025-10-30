@@ -130,17 +130,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
             } else {
               console.log("Doctor viewing - patient has no health record yet");
               // Set empty structure so doctor sees "No data" messages
-              healthData = {
-                patientId: patientId,
-                allergies: [],
-                currentMedications: [],
-                conditions: [],
-                medicalHistory: [],
-                bloodType: null,
-                dateOfBirth: null,
-                emergencyContactName: null,
-                emergencyContact: null
-              };
+             healthData = null;
             }
           } else {
             console.log("✅ Health record fetched successfully:", healthData);
@@ -161,17 +151,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
           }
           
           // Set an empty health record structure so the UI doesn't break
-          setHealthRecord({
-            patientId: patientId,
-            allergies: [],
-            currentMedications: [],
-            conditions: [],
-            medicalHistory: [],
-            bloodType: null,
-            dateOfBirth: null,
-            emergencyContactName: null,
-            emergencyContact: null
-          });
+          setHealthRecord(null);
         }
 
         // Update session status if doctor
