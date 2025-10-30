@@ -77,94 +77,125 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
     console.log("User email:", currentUser.email);
     setAuthChecked(true);
   }, [userProfile, onEndSession]);
+  // Key changes in the fetchSessionData useEffect:
 
-  // UPDATED: Fetch data with proper health record handling
-  useEffect(() => {
-    if (!authChecked) {
-      console.log("Waiting for authentication check...");
-      return;
-    }
+useEffect(() => {
+  if (!authChecked) {
+    console.log("Waiting for authentication check...");
+    return;
+  }
 
-    const fetchSessionData = async () => {
+  const fetchSessionData = async () => {
+    try {
+      setLoading(true);
+      
+      console.log("=== FETCHING SESSION DATA ===");
+      console.log("Appointment ID:", appointmentId);
+      console.log("User profile:", userProfile);
+      console.log("Is Doctor:", isDoctor);
+      
+      const appointmentData = await getAppointmentDetails(appointmentId);
+
+      if (!appointmentData) {
+        console.error("❌ Appointment data is null/undefined");
+        alert("Appointment not found. Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      console.log("✅ Fetched appointment data:", appointmentData);
+      setAppointment(appointmentData);
+
+      // FIXED: Always use the patient ID from the appointment data
+      const patientId = appointmentData.patientId;
+      console.log("=== FETCHING HEALTH RECORD ===");
+      console.log("Patient ID to fetch:", patientId);
+      console.log("Current user ID:", userProfile.uid);
+      console.log("Is Doctor viewing patient record:", isDoctor);
+      
+      // Fetch health record with proper error handling
       try {
-        setLoading(true);
+        console.log("Calling getPatientHealthRecord for patient:", patientId);
+        let healthData = await getPatientHealthRecord(patientId);
         
-        console.log("=== FETCHING SESSION DATA ===");
-        console.log("Appointment ID:", appointmentId);
-        console.log("User profile:", userProfile);
-        
-        const appointmentData = await getAppointmentDetails(appointmentId);
-
-        if (!appointmentData) {
-          console.error("❌ Appointment data is null/undefined");
-          alert("Appointment not found. Please try again.");
-          setLoading(false);
-          return;
-        }
-
-        console.log("✅ Fetched appointment data:", appointmentData);
-        setAppointment(appointmentData);
-
-        // Determine which patient ID to use
-        const patientId = isDoctor ? appointmentData.patientId : userProfile.uid;
-        console.log("=== FETCHING HEALTH RECORD ===");
-        console.log("Patient ID:", patientId);
-        console.log("Is Doctor:", isDoctor);
-        
-        // Fetch health record with proper error handling
-        try {
-          console.log("Calling getPatientHealthRecord...");
-          let healthData = await getPatientHealthRecord(patientId);
+        if (!healthData) {
+          console.warn("⚠️ No health record found for patient:", patientId);
           
-          if (!healthData) {
-            console.warn("⚠️ No health record found, creating new one...");
-            // Create a new health record if it doesn't exist
+          // Only create new health record if current user IS the patient
+          if (userProfile.uid === patientId) {
+            console.log("Creating new health record for current user (patient)");
             healthData = await createNewHealthRecord(patientId);
             console.log("✅ New health record created:", healthData);
           } else {
-            console.log("✅ Health record fetched successfully:", healthData);
+            console.log("Doctor viewing - patient has no health record yet");
+            // Set empty structure so doctor sees "No data" messages
+            healthData = {
+              patientId: patientId,
+              allergies: [],
+              currentMedications: [],
+              conditions: [],
+              medicalHistory: [],
+              bloodType: null,
+              dateOfBirth: null,
+              emergencyContactName: null,
+              emergencyContact: null
+            };
           }
-          
-          setHealthRecord(healthData);
-        } catch (healthError) {
-          console.error("❌ Error fetching/creating health record:", healthError);
-          console.error("Error code:", healthError.code);
-          console.error("Error message:", healthError.message);
-          
-          // Show user-friendly error
-          if (healthError.code === 'permission-denied') {
-            alert("Unable to access health records. Please check your permissions.");
-          } else {
-            alert(`Error loading health records: ${healthError.message}`);
-          }
-          
-          // Set an empty health record so the UI doesn't break
-          setHealthRecord(null);
+        } else {
+          console.log("✅ Health record fetched successfully:", healthData);
         }
-
-        // Update session status if doctor
-        if (isDoctor && appointmentData.sessionStatus !== 'active') {
-          await updateAppointmentSessionStatus(appointmentId, 'active');
-          setAppointment(prev => ({ ...prev, sessionStatus: 'active' }));
+        
+        setHealthRecord(healthData);
+      } catch (healthError) {
+        console.error("❌ Error fetching/creating health record:", healthError);
+        console.error("Error code:", healthError.code);
+        console.error("Error message:", healthError.message);
+        
+        // Show user-friendly error
+        if (healthError.code === 'permission-denied') {
+          console.error("PERMISSION DENIED - Check Firestore security rules!");
+          alert(`Unable to access health records. ${isDoctor ? 'You may not have permission to view this patient\'s records.' : 'Please check your permissions.'}`);
+        } else {
+          alert(`Error loading health records: ${healthError.message}`);
         }
-
-      } catch (error) {
-        console.error("❌ CATCH ERROR in fetchSessionData:", error);
-        console.error("Error code:", error.code);
-        console.error("Error message:", error.message);
-        alert(`Error loading appointment session: ${error.message}`);
-      } finally {
-        setLoading(false);
+        
+        // Set an empty health record structure so the UI doesn't break
+        setHealthRecord({
+          patientId: patientId,
+          allergies: [],
+          currentMedications: [],
+          conditions: [],
+          medicalHistory: [],
+          bloodType: null,
+          dateOfBirth: null,
+          emergencyContactName: null,
+          emergencyContact: null
+        });
       }
-    };
 
-    if (appointmentId && userProfile) {
-      fetchSessionData();
-    } else {
-      console.error("❌ Missing required data:", { appointmentId, userProfile });
+      // Update session status if doctor
+      if (isDoctor && appointmentData.sessionStatus !== 'active') {
+        await updateAppointmentSessionStatus(appointmentId, 'active');
+        setAppointment(prev => ({ ...prev, sessionStatus: 'active' }));
+      }
+
+    } catch (error) {
+      console.error("❌ CATCH ERROR in fetchSessionData:", error);
+      console.error("Error code:", error.code);
+      console.error("Error message:", error.message);
+      alert(`Error loading appointment session: ${error.message}`);
+    } finally {
       setLoading(false);
     }
-  }, [appointmentId, userProfile, isDoctor, authChecked]);
+  };
+
+  if (appointmentId && userProfile) {
+    fetchSessionData();
+  } else {
+    console.error("❌ Missing required data:", { appointmentId, userProfile });
+    setLoading(false);
+  }
+}, [appointmentId, userProfile, isDoctor, authChecked]);
 
   const handleNotarizeRecord = async () => {
     console.log("=== NOTARIZATION DEBUG START ===");
