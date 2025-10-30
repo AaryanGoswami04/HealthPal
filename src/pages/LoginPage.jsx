@@ -53,46 +53,60 @@ const LoginPage = () => {
         setError("Failed to sign in. Please check your credentials.");
       }
     } else { // Sign-up logic
-      if (formData.password !== formData.confirmPassword) {
-        setError("Passwords do not match!");
-        return;
-      }
-      try {
-        // Keep track of the user type during signup to set it correctly after.
-        const signedUpUserType = userType;
+  if (formData.password !== formData.confirmPassword) {
+    setError("Passwords do not match!");
+    return;
+  }
+  try {
+    const signedUpUserType = userType;
 
-        const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
-        const user = userCredential.user;
-        
-        const userData = {
-          name: formData.name,
-          email: user.email,
-          role: signedUpUserType
-        };
+    const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+    const user = userCredential.user;
+    
+    const userData = {
+      name: formData.name,
+      email: user.email,
+      role: signedUpUserType
+    };
 
-        if (signedUpUserType === 'doctor') {
-          userData.verificationId = formData.verificationId;
-          userData.isVerified = true;
-        }
-
-        await setDoc(doc(db, "users", user.uid), userData);
-
-        // Sign the user out to prevent automatic navigation to home page
-        await auth.signOut();
-
-        // Reset form, switch to Sign In view, and show success message
-        setFormData({ email: '', password: '', name: '', confirmPassword: '', verificationId: '' });
-        setIsLogin(true);
-        setSuccessMessage("Account created successfully! Please sign in.");
-        
-        // Ensure the user type toggle is set correctly for the login form
-        setUserType(signedUpUserType);
-
-      } catch (error) {
-        console.error("Error signing up:", error);
-        setError("Failed to create an account: " + error.message);
-      }
+    if (signedUpUserType === 'doctor') {
+      userData.verificationId = formData.verificationId;
+      userData.isVerified = true;
     }
+
+    await setDoc(doc(db, "users", user.uid), userData);
+
+    // NEW: Properly sign out and clear all auth state
+    await auth.signOut();
+    
+    // NEW: Force clear any cached auth data
+    if (window.localStorage) {
+      // Clear Firebase auth tokens from localStorage
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('firebase:')) {
+          localStorage.removeItem(key);
+        }
+      });
+    }
+
+    // Reset form
+    setFormData({ 
+      email: '', 
+      password: '', 
+      name: '', 
+      confirmPassword: '', 
+      verificationId: '' 
+    });
+    
+    setIsLogin(true);
+    setSuccessMessage("Account created successfully! Please sign in.");
+    setUserType(signedUpUserType);
+
+  } catch (error) {
+    console.error("Error signing up:", error);
+    setError("Failed to create an account: " + error.message);
+  }
+}
   };
 
   return (
