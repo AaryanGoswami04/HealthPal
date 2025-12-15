@@ -405,77 +405,104 @@ const handleEndVideoCall = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
-        <header className="mb-8 flex items-center justify-between">
-            <div className="flex items-center">
-                <button
-                    onClick={handleEndSession}
-                    className="p-3 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border border-white/20 hover:bg-white transition-all duration-300 group mr-4"
-                >
-                    <ArrowLeft className="w-5 h-5 text-gray-600 group-hover:text-blue-600"/>
-                </button>
-                <div>
-                    <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-blue-600 via-teal-600 to-emerald-600 bg-clip-text text-transparent">
-                        Appointment Session
-                    </h1>
-                    <div className="flex items-center text-gray-600 mt-1">
-                        <div className={`w-2 h-2 rounded-full mr-2 ${appointment.sessionStatus === 'active' ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`}></div>
-                        {appointment.sessionStatus === 'active' ? 'Session Active' : 'Session Ready'}
-                    </div>
-                </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              {appointment.sessionStatus === 'active' && (
-                <button
-                  onClick={handleJoinVideoCall}
-                  className="py-3 px-6 rounded-xl text-white font-semibold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center"
-                >
-                  <Video className="w-5 h-5 mr-2" />
-                  Join Video Call
-                </button>
-              )}
+        <header className="mb-8">
+  <div className="flex items-center justify-between mb-4">
+    <div className="flex items-center">
+      <button
+        onClick={handleEndSession}
+        className="p-3 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg border border-white/20 hover:bg-white transition-all duration-300 group mr-4"
+      >
+        <ArrowLeft className="w-5 h-5 text-gray-600 group-hover:text-blue-600"/>
+      </button>
+      <div>
+        <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-blue-600 via-teal-600 to-emerald-600 bg-clip-text text-transparent">
+          Appointment Session
+        </h1>
+        <div className="flex items-center text-gray-600 mt-1">
+          <div className={`w-2 h-2 rounded-full mr-2 ${appointment.sessionStatus === 'active' ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`}></div>
+          {appointment.sessionStatus === 'active' ? 'Session Active' : 'Session Ready'}
+        </div>
+      </div>
+    </div>
+  </div>
 
-              {saveMessage && (
-                <div className="flex items-center px-3 py-1 bg-green-100 text-green-800 rounded-full">
-                  <CheckCircle className="w-4 h-4 mr-1" />
-                  <span className="text-sm">{saveMessage}</span>
-                </div>
-              )}
-              {notarizeMessage && (
-                <div className={`flex items-center px-3 py-1 ${notarizeMessage.startsWith('Success') ? 'bg-indigo-100 text-indigo-800' : 'bg-red-100 text-red-800'} rounded-full`}>
-                  {notarizeMessage.startsWith('Success') ? <CheckCircle className="w-4 h-4 mr-1" /> : <AlertCircle className="w-4 h-4 mr-1" />}
-                  <span className="text-sm">{notarizeMessage}</span>
-                </div>
-              )}
-              {isDoctor && (
-                <button
-                  onClick={handleNotarizeRecord}
-                  disabled={notarizing || updating || appointment?.isNotarized}
-                  className={`py-3 px-6 rounded-xl text-white font-semibold transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center disabled:opacity-50 ${
-                    appointment?.isNotarized 
-                      ? 'bg-gradient-to-r from-green-600 to-emerald-600' 
-                      : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700'
-                  }`}
-                >
-                  <Fingerprint className="w-4 h-4 mr-2" />
-                  {appointment?.isNotarized 
-                    ? 'Already Notarized' 
-                    : notarizing 
-                      ? 'Notarizing...' 
-                      : 'Notarize on Blockchain'
-                  }
-                </button>
-              )}
-              {isDoctor && (
-                <button
-                  onClick={handleCompleteSession}
-                  disabled={updating}
-                  className="py-3 px-6 rounded-xl text-white font-semibold bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center disabled:opacity-50"
-                >
-                  {updating ? 'Completing...' : 'Complete Session'}
-                </button>
-              )}
-            </div>
-        </header>
+  {/* Action Buttons Row */}
+  <div className="flex items-center justify-end space-x-3 flex-wrap gap-y-3">
+    {/* DEBUG INFO - Remove this after testing */}
+    <div className="bg-gray-100 px-3 py-2 rounded-lg text-xs">
+      <div>Status: <strong>{appointment.sessionStatus}</strong></div>
+      <div>Role: <strong>{userProfile?.role}</strong></div>
+      <div>Is Doctor: <strong>{isDoctor ? 'YES' : 'NO'}</strong></div>
+    </div>
+
+    {/* VIDEO CALL BUTTON - Now shows for BOTH doctor and patient when active */}
+    {appointment.sessionStatus === 'active' && (
+      <button
+        onClick={handleJoinVideoCall}
+        className="py-3 px-6 rounded-xl text-white font-semibold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center"
+      >
+        <Video className="w-5 h-5 mr-2" />
+        Join Video Call
+      </button>
+    )}
+
+    {/* If session is NOT active, show why */}
+    {appointment.sessionStatus !== 'active' && (
+      <div className="bg-yellow-100 text-yellow-800 px-4 py-2 rounded-lg text-sm flex items-center">
+        <AlertCircle className="w-4 h-4 mr-2" />
+        Waiting for doctor to start session...
+      </div>
+    )}
+
+    {/* Save Message */}
+    {saveMessage && (
+      <div className="flex items-center px-3 py-1 bg-green-100 text-green-800 rounded-full">
+        <CheckCircle className="w-4 h-4 mr-1" />
+        <span className="text-sm">{saveMessage}</span>
+      </div>
+    )}
+
+    {/* Notarize Message */}
+    {notarizeMessage && (
+      <div className={`flex items-center px-3 py-1 ${notarizeMessage.startsWith('Success') ? 'bg-indigo-100 text-indigo-800' : 'bg-red-100 text-red-800'} rounded-full`}>
+        {notarizeMessage.startsWith('Success') ? <CheckCircle className="w-4 h-4 mr-1" /> : <AlertCircle className="w-4 h-4 mr-1" />}
+        <span className="text-sm">{notarizeMessage}</span>
+      </div>
+    )}
+
+    {/* Notarize Button (Doctor only) */}
+    {isDoctor && (
+      <button
+        onClick={handleNotarizeRecord}
+        disabled={notarizing || updating || appointment?.isNotarized}
+        className={`py-3 px-6 rounded-xl text-white font-semibold transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center disabled:opacity-50 ${
+          appointment?.isNotarized 
+            ? 'bg-gradient-to-r from-green-600 to-emerald-600' 
+            : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700'
+        }`}
+      >
+        <Fingerprint className="w-4 h-4 mr-2" />
+        {appointment?.isNotarized 
+          ? 'Already Notarized' 
+          : notarizing 
+            ? 'Notarizing...' 
+            : 'Notarize on Blockchain'
+        }
+      </button>
+    )}
+
+    {/* Complete Session Button (Doctor only) */}
+    {isDoctor && (
+      <button
+        onClick={handleCompleteSession}
+        disabled={updating}
+        className="py-3 px-6 rounded-xl text-white font-semibold bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center disabled:opacity-50"
+      >
+        {updating ? 'Completing...' : 'Complete Session'}
+      </button>
+    )}
+  </div>
+</header>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column - Appointment Info & Patient Problem */}
