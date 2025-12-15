@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft, User, Calendar, Clock, Stethoscope,
   FileText, Plus, Save, AlertCircle, CheckCircle, Fingerprint,
-  Activity, Heart, Pill, AlertTriangle
+  Activity, Heart, Pill, AlertTriangle, Video
 } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -14,6 +14,7 @@ import {
   updatePatientMedicalInfoInSession,
   storeBlockchainTransactionHash 
 } from '../services/AppointmentSessionService';
+import VideoCallPage from './VideoCallPage';
 import { getPatientHealthRecord, createNewHealthRecord, notarizeHealthRecordOnChain } from '../services/healthRecordService';
 
 const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
@@ -23,7 +24,7 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const [updating, setUpdating] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [authChecked, setAuthChecked] = useState(false);
-
+  const [isInVideoCall, setIsInVideoCall] = useState(false);
   // Doctor's medical update forms
   const [newAllergy, setNewAllergy] = useState({ name: '', severity: '', reaction: '' });
   const [newMedication, setNewMedication] = useState({ name: '', dosage: '', frequency: '', instructions: '' });
@@ -344,7 +345,13 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const handleEndSession = () => {
     onEndSession();
   };
+const handleJoinVideoCall = () => {
+  setIsInVideoCall(true);
+};
 
+const handleEndVideoCall = () => {
+  setIsInVideoCall(false);
+};
   // Show loading while checking authentication
   if (!authChecked) {
     return (
@@ -385,6 +392,16 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
     );
   }
 
+  if (isInVideoCall) {
+  return (
+    <VideoCallPage
+      userProfile={userProfile}
+      appointmentId={appointmentId}
+      onEndCall={handleEndVideoCall}
+    />
+  );
+}
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
@@ -407,6 +424,16 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
                 </div>
             </div>
             <div className="flex items-center space-x-4">
+              {appointment.sessionStatus === 'active' && (
+                <button
+                  onClick={handleJoinVideoCall}
+                  className="py-3 px-6 rounded-xl text-white font-semibold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center"
+                >
+                  <Video className="w-5 h-5 mr-2" />
+                  Join Video Call
+                </button>
+              )}
+
               {saveMessage && (
                 <div className="flex items-center px-3 py-1 bg-green-100 text-green-800 rounded-full">
                   <CheckCircle className="w-4 h-4 mr-1" />
