@@ -16,6 +16,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
   const [callStatus, setCallStatus] = useState('connecting');
   const [error, setError] = useState('');
   const [connectionQuality, setConnectionQuality] = useState('good');
+  const [renderError, setRenderError] = useState(null);
   
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -25,6 +26,17 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
 
   const isDoctor = userProfile?.role === 'doctor';
   const callRoomPath = `videoCalls/${appointmentId}`;
+
+  // Error boundary effect
+  useEffect(() => {
+    const handleError = (event) => {
+      console.error('Global error caught:', event.error);
+      setRenderError(event.error?.message || 'An error occurred');
+    };
+
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
 
   // Initialize local media stream
   useEffect(() => {
@@ -126,7 +138,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
       console.log('👨‍⚕️ Doctor creating peer connection...');
       
       try {
-        const peer = new SimplePeer({
+        const peerConfig = {
           initiator: true,
           trickle: false,
           stream: localStream,
@@ -134,18 +146,22 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
             iceServers: [
               { urls: 'stun:stun.l.google.com:19302' },
               { urls: 'stun:stun1.l.google.com:19302' },
-              { urls: 'stun:stun2.l.google.com:19302' },
-              { urls: 'stun:stun3.l.google.com:19302' },
-              { urls: 'stun:stun4.l.google.com:19302' }
+              { urls: 'stun:stun2.l.google.com:19302' }
             ]
           }
-        });
+        };
+
+        console.log('Creating SimplePeer with config:', peerConfig);
+        const peer = new SimplePeer(peerConfig);
 
         peer.on('signal', (signal) => {
           console.log('📡 Doctor sending offer signal to Firebase...');
           set(dbRef(rtdb, `${callRoomPath}/offer`), signal)
             .then(() => console.log('✅ Offer saved to Firebase'))
-            .catch(err => console.error('❌ Failed to save offer:', err));
+            .catch(err => {
+              console.error('❌ Failed to save offer:', err);
+              setError(`Failed to save offer: ${err.message}`);
+            });
         });
 
         peer.on('stream', (stream) => {
@@ -174,20 +190,28 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
         const answerRef = dbRef(rtdb, `${callRoomPath}/answer`);
         unsubscribeAnswer = onValue(answerRef, (snapshot) => {
           const answer = snapshot.val();
-          if (answer && !peer.destroyed) {
+          if (answer && peer && !peer.destroyed) {
             console.log('📨 Doctor received answer from patient');
             try {
               peer.signal(answer);
             } catch (err) {
               console.error('❌ Error signaling answer:', err);
+              setError(`Error processing answer: ${err.message}`);
             }
           }
+        }, (err) => {
+          console.error('❌ Error listening for answer:', err);
+          setError(`Database error: ${err.message}`);
         });
 
         peerRef.current = peer;
+        console.log('✅ Peer reference stored');
+        
       } catch (err) {
-        console.error('❌ FATAL: Failed to create peer connection:', err);
-        setError(`Failed to initialize video call: ${err.message}. Please refresh and try again.`);
+        console.error('❌ FATAL: Failed to create doctor peer connection:', err);
+        console.error('Error stack:', err.stack);
+        setError(`Failed to initialize video call: ${err.message}`);
+        setRenderError(`Failed to initialize: ${err.message}`);
       }
 
     } else {
@@ -202,7 +226,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
           console.log('📨 Patient received offer from doctor');
           
           try {
-            const peer = new SimplePeer({
+            const peerConfig = {
               initiator: false,
               trickle: false,
               stream: localStream,
@@ -210,18 +234,22 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
                 iceServers: [
                   { urls: 'stun:stun.l.google.com:19302' },
                   { urls: 'stun:stun1.l.google.com:19302' },
-                  { urls: 'stun:stun2.l.google.com:19302' },
-                  { urls: 'stun:stun3.l.google.com:19302' },
-                  { urls: 'stun:stun4.l.google.com:19302' }
+                  { urls: 'stun:stun2.l.google.com:19302' }
                 ]
               }
-            });
+            };
+
+            console.log('Creating SimplePeer with config:', peerConfig);
+            const peer = new SimplePeer(peerConfig);
 
             peer.on('signal', (signal) => {
               console.log('📡 Patient sending answer signal to Firebase...');
               set(dbRef(rtdb, `${callRoomPath}/answer`), signal)
                 .then(() => console.log('✅ Answer saved to Firebase'))
-                .catch(err => console.error('❌ Failed to save answer:', err));
+                .catch(err => {
+                  console.error('❌ Failed to save answer:', err);
+                  setError(`Failed to save answer: ${err.message}`);
+                });
             });
 
             peer.on('stream', (stream) => {
@@ -250,14 +278,22 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
               peer.signal(offer);
             } catch (err) {
               console.error('❌ Error signaling offer:', err);
+              setError(`Error processing offer: ${err.message}`);
             }
 
             peerRef.current = peer;
+            console.log('✅ Peer reference stored');
+            
           } catch (err) {
-            console.error('❌ FATAL: Failed to create peer connection:', err);
-            setError(`Failed to join video call: ${err.message}. Please refresh and try again.`);
+            console.error('❌ FATAL: Failed to create patient peer connection:', err);
+            console.error('Error stack:', err.stack);
+            setError(`Failed to join video call: ${err.message}`);
+            setRenderError(`Failed to join: ${err.message}`);
           }
         }
+      }, (err) => {
+        console.error('❌ Error listening for offer:', err);
+        setError(`Database error: ${err.message}`);
       });
     }
 
@@ -305,6 +341,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
   const toggleScreenShare = async () => {
     if (!peerRef.current) {
       setError('Cannot share screen: No active connection');
+      setTimeout(() => setError(''), 3000);
       return;
     }
 
@@ -319,13 +356,21 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
 
         screenStreamRef.current = screenStream;
         
-        // Replace video track with screen track
+        // Replace video track with screen track - with null check
         const screenTrack = screenStream.getVideoTracks()[0];
-        const sender = peerRef.current._pc.getSenders().find(s => s.track?.kind === 'video');
         
-        if (sender) {
-          await sender.replaceTrack(screenTrack);
-          console.log('✅ Screen track replaced');
+        // Check if peer connection exists and has getSenders method
+        if (peerRef.current && peerRef.current._pc && typeof peerRef.current._pc.getSenders === 'function') {
+          const sender = peerRef.current._pc.getSenders().find(s => s.track?.kind === 'video');
+          
+          if (sender && typeof sender.replaceTrack === 'function') {
+            await sender.replaceTrack(screenTrack);
+            console.log('✅ Screen track replaced');
+          } else {
+            console.warn('⚠️ No video sender found');
+          }
+        } else {
+          console.warn('⚠️ Peer connection not ready for track replacement');
         }
 
         // Update local video display
@@ -333,7 +378,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
           localVideoRef.current.srcObject = screenStream;
         }
 
-        // Listen for screen share stop (user clicks "Stop sharing" in browser)
+        // Listen for screen share stop
         screenTrack.onended = () => {
           console.log('🛑 Screen share stopped by user');
           toggleScreenShare();
@@ -351,16 +396,19 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
         }
 
         // Return to camera
-        const videoTrack = originalVideoTrackRef.current || localStream.getVideoTracks()[0];
-        const sender = peerRef.current._pc.getSenders().find(s => s.track?.kind === 'video');
+        const videoTrack = originalVideoTrackRef.current || localStream?.getVideoTracks()[0];
         
-        if (sender && videoTrack) {
-          await sender.replaceTrack(videoTrack);
-          console.log('✅ Camera track restored');
+        if (peerRef.current && peerRef.current._pc && typeof peerRef.current._pc.getSenders === 'function') {
+          const sender = peerRef.current._pc.getSenders().find(s => s.track?.kind === 'video');
+          
+          if (sender && videoTrack && typeof sender.replaceTrack === 'function') {
+            await sender.replaceTrack(videoTrack);
+            console.log('✅ Camera track restored');
+          }
         }
 
         // Update local video display
-        if (localVideoRef.current) {
+        if (localVideoRef.current && localStream) {
           localVideoRef.current.srcObject = localStream;
         }
 
@@ -402,6 +450,29 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
     onEndCall();
   };
 
+  // Show error screen if there's a render error
+  if (renderError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-red-50 to-red-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-gray-800 text-center mb-4">
+            Connection Error
+          </h2>
+          <p className="text-gray-600 text-center mb-6">
+            {renderError}
+          </p>
+          <button
+            onClick={onEndCall}
+            className="w-full py-3 px-6 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
+          >
+            Return to Appointment
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto min-h-[calc(100vh-4rem)] flex flex-col">
@@ -428,7 +499,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
 
             <div className="flex items-center space-x-4">
               <div className="text-gray-600 text-sm bg-white/50 px-3 py-1 rounded-full">
-                Appointment #{appointmentId.slice(-6)}
+                Appointment #{appointmentId?.slice(-6) || 'N/A'}
               </div>
               {connectionQuality !== 'good' && callStatus === 'connected' && (
                 <div className="text-yellow-600 text-sm bg-yellow-50 px-3 py-1 rounded-full flex items-center">
@@ -449,8 +520,8 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
 
         {/* Video Grid */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          {/* Remote Video (Doctor/Patient) */}
-          <div className="relative bg-white/80 backdrop-blur-xl rounded-2xl overflow-hidden border border-white/20 shadow-xl">
+          {/* Remote Video */}
+          <div className="relative bg-white/80 backdrop-blur-xl rounded-2xl overflow-hidden border border-white/20 shadow-xl min-h-[300px]">
             <video
               ref={remoteVideoRef}
               autoPlay
@@ -461,7 +532,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
             
             {!remoteStream && (
               <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
-                <div className="text-center">
+                <div className="text-center p-6">
                   <Loader className="w-16 h-16 text-blue-600 animate-spin mx-auto mb-4" />
                   <p className="text-gray-700 text-lg font-semibold">
                     Waiting for {isDoctor ? 'patient' : 'doctor'} to join...
@@ -473,7 +544,6 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
               </div>
             )}
             
-            {/* Remote user label */}
             <div className="absolute top-4 left-4 bg-blue-600 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg">
               <span className="text-white font-semibold">
                 {isDoctor ? '🧑‍🦱 Patient' : '👨‍⚕️ Doctor'}
@@ -481,8 +551,8 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
             </div>
           </div>
 
-          {/* Local Video (You) */}
-          <div className="relative bg-white/80 backdrop-blur-xl rounded-2xl overflow-hidden border border-white/20 shadow-xl">
+          {/* Local Video */}
+          <div className="relative bg-white/80 backdrop-blur-xl rounded-2xl overflow-hidden border border-white/20 shadow-xl min-h-[300px]">
             <video
               ref={localVideoRef}
               autoPlay
@@ -492,7 +562,6 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
               style={{ display: localStream && isVideoEnabled ? 'block' : 'none' }}
             />
 
-            {/* Video off overlay */}
             {(!localStream || !isVideoEnabled) && (
               <div className="absolute inset-0 bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
                 <div className="text-center">
@@ -511,14 +580,12 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
               </div>
             )}
 
-            {/* Local user label */}
             <div className="absolute top-4 left-4 bg-teal-600 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg">
               <span className="text-white font-semibold">
                 {isDoctor ? '👨‍⚕️ You (Doctor)' : '🧑‍🦱 You (Patient)'}
               </span>
             </div>
 
-            {/* Screen sharing indicator */}
             {isScreenSharing && (
               <div className="absolute top-4 right-4 bg-emerald-600 backdrop-blur-md px-4 py-2 rounded-xl shadow-lg flex items-center">
                 <Monitor className="w-4 h-4 mr-2" />
@@ -530,8 +597,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
 
         {/* Control Bar */}
         <div className="flex flex-col items-center space-y-4">
-          <div className="flex items-center justify-center space-x-4">
-            {/* Toggle Video */}
+          <div className="flex items-center justify-center flex-wrap gap-4">
             <button
               onClick={toggleVideo}
               disabled={!localStream}
@@ -542,14 +608,9 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
               }`}
               title={isVideoEnabled ? 'Turn off camera' : 'Turn on camera'}
             >
-              {isVideoEnabled ? (
-                <Video className="w-6 h-6 text-white" />
-              ) : (
-                <VideoOff className="w-6 h-6 text-white" />
-              )}
+              {isVideoEnabled ? <Video className="w-6 h-6 text-white" /> : <VideoOff className="w-6 h-6 text-white" />}
             </button>
 
-            {/* Toggle Audio */}
             <button
               onClick={toggleAudio}
               disabled={!localStream}
@@ -560,14 +621,9 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
               }`}
               title={isAudioEnabled ? 'Mute microphone' : 'Unmute microphone'}
             >
-              {isAudioEnabled ? (
-                <Mic className="w-6 h-6 text-white" />
-              ) : (
-                <MicOff className="w-6 h-6 text-white" />
-              )}
+              {isAudioEnabled ? <Mic className="w-6 h-6 text-white" /> : <MicOff className="w-6 h-6 text-white" />}
             </button>
 
-            {/* Screen Share (Doctor only) */}
             {isDoctor && (
               <button
                 onClick={toggleScreenShare}
@@ -579,15 +635,10 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
                 }`}
                 title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
               >
-                {isScreenSharing ? (
-                  <MonitorOff className="w-6 h-6 text-white" />
-                ) : (
-                  <Monitor className="w-6 h-6 text-white" />
-                )}
+                {isScreenSharing ? <MonitorOff className="w-6 h-6 text-white" /> : <Monitor className="w-6 h-6 text-white" />}
               </button>
             )}
 
-            {/* End Call */}
             <button
               onClick={endCall}
               className="p-4 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 transition-all duration-300 transform hover:scale-105 shadow-lg"
@@ -597,8 +648,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
             </button>
           </div>
 
-          {/* Call Info */}
-          <div className="flex items-center justify-center space-x-6 text-gray-600 text-sm">
+          <div className="flex items-center justify-center flex-wrap gap-4 text-gray-600 text-sm">
             <div className="flex items-center bg-blue-50 px-3 py-1 rounded-full">
               <Phone className="w-4 h-4 mr-2 text-blue-600" />
               <span>In Call</span>
@@ -608,16 +658,12 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
                 {connectionQuality === 'good' ? (
                   <>
                     <Volume2 className="w-4 h-4 mr-2 text-green-600" />
-                    <span className="text-green-600 bg-green-50 px-3 py-1 rounded-full">
-                      Good Quality
-                    </span>
+                    <span className="text-green-600 bg-green-50 px-3 py-1 rounded-full">Good Quality</span>
                   </>
                 ) : (
                   <>
                     <VolumeX className="w-4 h-4 mr-2 text-yellow-600" />
-                    <span className="text-yellow-600 bg-yellow-50 px-3 py-1 rounded-full">
-                      Poor Quality
-                    </span>
+                    <span className="text-yellow-600 bg-yellow-50 px-3 py-1 rounded-full">Poor Quality</span>
                   </>
                 )}
               </div>
