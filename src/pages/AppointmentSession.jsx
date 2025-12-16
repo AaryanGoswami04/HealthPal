@@ -428,12 +428,6 @@ const handleEndVideoCall = () => {
 
   {/* Action Buttons Row */}
   <div className="flex items-center justify-end space-x-3 flex-wrap gap-y-3">
-    {/* DEBUG INFO - Remove this after testing */}
-    <div className="bg-gray-100 px-3 py-2 rounded-lg text-xs">
-      <div>Status: <strong>{appointment.sessionStatus}</strong></div>
-      <div>Role: <strong>{userProfile?.role}</strong></div>
-      <div>Is Doctor: <strong>{isDoctor ? 'YES' : 'NO'}</strong></div>
-    </div>
 
     {/* VIDEO CALL BUTTON - Now shows for BOTH doctor and patient when active */}
     {appointment.sessionStatus === 'active' && (
