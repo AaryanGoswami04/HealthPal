@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Video, VideoOff, Mic, MicOff, Phone, PhoneOff,
-  Monitor, MonitorOff, Volume2, VolumeX, Loader
+  Monitor, MonitorOff, Volume2, VolumeX, Loader, AlertCircle
 } from 'lucide-react';
-import 'webrtc-adapter';
 import SimplePeer from 'simple-peer';
 import { ref as dbRef, onValue, set, remove } from 'firebase/database';
 import { rtdb } from '../firebase';
-
 
 const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
   const [localStream, setLocalStream] = useState(null);
@@ -127,65 +125,70 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
     if (isDoctor) {
       console.log('👨‍⚕️ Doctor creating peer connection...');
       
-      const peer = new SimplePeer({
-        initiator: true,
-        trickle: false,
-        stream: localStream,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' },
-            { urls: 'stun:stun4.l.google.com:19302' }
-          ]
-        }
-      });
-
-      peer.on('signal', (signal) => {
-        console.log('📡 Doctor sending offer signal to Firebase...');
-        set(dbRef(rtdb, `${callRoomPath}/offer`), signal)
-          .then(() => console.log('✅ Offer saved to Firebase'))
-          .catch(err => console.error('❌ Failed to save offer:', err));
-      });
-
-      peer.on('stream', (stream) => {
-        console.log('🎥 Doctor receiving patient stream:', {
-          videoTracks: stream.getVideoTracks().length,
-          audioTracks: stream.getAudioTracks().length
-        });
-        setRemoteStream(stream);
-        setCallStatus('connected');
-      });
-
-      peer.on('connect', () => {
-        console.log('✅ Doctor peer connection established');
-      });
-
-      peer.on('error', (err) => {
-        console.error('❌ Doctor peer error:', err);
-        setError(`Connection error: ${err.message}`);
-      });
-
-      peer.on('close', () => {
-        console.log('🔌 Doctor peer connection closed');
-      });
-
-      // Listen for patient's answer
-      const answerRef = dbRef(rtdb, `${callRoomPath}/answer`);
-      unsubscribeAnswer = onValue(answerRef, (snapshot) => {
-        const answer = snapshot.val();
-        if (answer && !peer.destroyed) {
-          console.log('📨 Doctor received answer from patient');
-          try {
-            peer.signal(answer);
-          } catch (err) {
-            console.error('❌ Error signaling answer:', err);
+      try {
+        const peer = new SimplePeer({
+          initiator: true,
+          trickle: false,
+          stream: localStream,
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' },
+              { urls: 'stun:stun3.l.google.com:19302' },
+              { urls: 'stun:stun4.l.google.com:19302' }
+            ]
           }
-        }
-      });
+        });
 
-      peerRef.current = peer;
+        peer.on('signal', (signal) => {
+          console.log('📡 Doctor sending offer signal to Firebase...');
+          set(dbRef(rtdb, `${callRoomPath}/offer`), signal)
+            .then(() => console.log('✅ Offer saved to Firebase'))
+            .catch(err => console.error('❌ Failed to save offer:', err));
+        });
+
+        peer.on('stream', (stream) => {
+          console.log('🎥 Doctor receiving patient stream:', {
+            videoTracks: stream.getVideoTracks().length,
+            audioTracks: stream.getAudioTracks().length
+          });
+          setRemoteStream(stream);
+          setCallStatus('connected');
+        });
+
+        peer.on('connect', () => {
+          console.log('✅ Doctor peer connection established');
+        });
+
+        peer.on('error', (err) => {
+          console.error('❌ Doctor peer error:', err);
+          setError(`Connection error: ${err.message}`);
+        });
+
+        peer.on('close', () => {
+          console.log('🔌 Doctor peer connection closed');
+        });
+
+        // Listen for patient's answer
+        const answerRef = dbRef(rtdb, `${callRoomPath}/answer`);
+        unsubscribeAnswer = onValue(answerRef, (snapshot) => {
+          const answer = snapshot.val();
+          if (answer && !peer.destroyed) {
+            console.log('📨 Doctor received answer from patient');
+            try {
+              peer.signal(answer);
+            } catch (err) {
+              console.error('❌ Error signaling answer:', err);
+            }
+          }
+        });
+
+        peerRef.current = peer;
+      } catch (err) {
+        console.error('❌ FATAL: Failed to create peer connection:', err);
+        setError(`Failed to initialize video call: ${err.message}. Please refresh and try again.`);
+      }
 
     } else {
       // Patient joins and creates answer
@@ -198,57 +201,62 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
         if (offer && !peerRef.current) {
           console.log('📨 Patient received offer from doctor');
           
-          const peer = new SimplePeer({
-            initiator: false,
-            trickle: false,
-            stream: localStream,
-            config: {
-              iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' }
-              ]
-            }
-          });
-
-          peer.on('signal', (signal) => {
-            console.log('📡 Patient sending answer signal to Firebase...');
-            set(dbRef(rtdb, `${callRoomPath}/answer`), signal)
-              .then(() => console.log('✅ Answer saved to Firebase'))
-              .catch(err => console.error('❌ Failed to save answer:', err));
-          });
-
-          peer.on('stream', (stream) => {
-            console.log('🎥 Patient receiving doctor stream:', {
-              videoTracks: stream.getVideoTracks().length,
-              audioTracks: stream.getAudioTracks().length
-            });
-            setRemoteStream(stream);
-            setCallStatus('connected');
-          });
-
-          peer.on('connect', () => {
-            console.log('✅ Patient peer connection established');
-          });
-
-          peer.on('error', (err) => {
-            console.error('❌ Patient peer error:', err);
-            setError(`Connection error: ${err.message}`);
-          });
-
-          peer.on('close', () => {
-            console.log('🔌 Patient peer connection closed');
-          });
-
           try {
-            peer.signal(offer);
-          } catch (err) {
-            console.error('❌ Error signaling offer:', err);
-          }
+            const peer = new SimplePeer({
+              initiator: false,
+              trickle: false,
+              stream: localStream,
+              config: {
+                iceServers: [
+                  { urls: 'stun:stun.l.google.com:19302' },
+                  { urls: 'stun:stun1.l.google.com:19302' },
+                  { urls: 'stun:stun2.l.google.com:19302' },
+                  { urls: 'stun:stun3.l.google.com:19302' },
+                  { urls: 'stun:stun4.l.google.com:19302' }
+                ]
+              }
+            });
 
-          peerRef.current = peer;
+            peer.on('signal', (signal) => {
+              console.log('📡 Patient sending answer signal to Firebase...');
+              set(dbRef(rtdb, `${callRoomPath}/answer`), signal)
+                .then(() => console.log('✅ Answer saved to Firebase'))
+                .catch(err => console.error('❌ Failed to save answer:', err));
+            });
+
+            peer.on('stream', (stream) => {
+              console.log('🎥 Patient receiving doctor stream:', {
+                videoTracks: stream.getVideoTracks().length,
+                audioTracks: stream.getAudioTracks().length
+              });
+              setRemoteStream(stream);
+              setCallStatus('connected');
+            });
+
+            peer.on('connect', () => {
+              console.log('✅ Patient peer connection established');
+            });
+
+            peer.on('error', (err) => {
+              console.error('❌ Patient peer error:', err);
+              setError(`Connection error: ${err.message}`);
+            });
+
+            peer.on('close', () => {
+              console.log('🔌 Patient peer connection closed');
+            });
+
+            try {
+              peer.signal(offer);
+            } catch (err) {
+              console.error('❌ Error signaling offer:', err);
+            }
+
+            peerRef.current = peer;
+          } catch (err) {
+            console.error('❌ FATAL: Failed to create peer connection:', err);
+            setError(`Failed to join video call: ${err.message}. Please refresh and try again.`);
+          }
         }
       });
     }
@@ -396,10 +404,10 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-emerald-50 p-4 sm:p-6 lg:p-8">
-      <div className="max-w-7xl mx-auto h-[calc(100vh-4rem)] flex flex-col">
+      <div className="max-w-7xl mx-auto min-h-[calc(100vh-4rem)] flex flex-col">
         {/* Header */}
         <header className="mb-6 bg-white/80 backdrop-blur-xl rounded-2xl p-6 shadow-xl border border-white/20">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center space-x-3">
               <div className={`w-3 h-3 rounded-full ${
                 callStatus === 'connected' ? 'bg-green-500 animate-pulse' : 
@@ -410,7 +418,11 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 via-teal-600 to-emerald-600 bg-clip-text text-transparent">
                   Video Consultation
                 </h1>
-              
+                <span className="text-gray-600 text-sm">
+                  {callStatus === 'connected' ? '🟢 Connected' : 
+                   callStatus === 'connecting' ? '🟡 Connecting...' : 
+                   '🔴 Call Ended'}
+                </span>
               </div>
             </div>
 
