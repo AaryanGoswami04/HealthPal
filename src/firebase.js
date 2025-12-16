@@ -14,7 +14,7 @@ const firebaseConfig = {
   messagingSenderId: "1075350260983",
   appId: "1:1075350260983:web:39fda85e0c6fb9c21c17f2",
   measurementId: "G-3XWGLBH7E6",
-  databaseURL: "https://health-pal-d1722-default-rtdb.firebaseio.com"
+  databaseURL: "https://health-pal-d1722-default-rtdb.asia-southeast1.firebasedatabase.app"
 };
 
 // Initialize Firebase
