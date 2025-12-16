@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Video, VideoOff, Mic, MicOff, Phone, PhoneOff,
-  Monitor, MonitorOff, Camera, Volume2, VolumeX, Loader
+  Monitor, MonitorOff, Volume2, VolumeX, Loader
 } from 'lucide-react';
 import SimplePeer from 'simple-peer';
-import { ref as dbRef, onValue, set, remove, push } from 'firebase/database';
+import { ref as dbRef, onValue, set, remove } from 'firebase/database';
 import { rtdb } from '../firebase';
 
 const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
@@ -13,7 +13,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [callStatus, setCallStatus] = useState('connecting'); // connecting, connected, ended
+  const [callStatus, setCallStatus] = useState('connecting');
   const [error, setError] = useState('');
   const [connectionQuality, setConnectionQuality] = useState('good');
   
@@ -21,16 +21,24 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
   const remoteVideoRef = useRef(null);
   const peerRef = useRef(null);
   const screenStreamRef = useRef(null);
+  const originalVideoTrackRef = useRef(null);
 
   const isDoctor = userProfile?.role === 'doctor';
   const callRoomPath = `videoCalls/${appointmentId}`;
 
   // Initialize local media stream
   useEffect(() => {
+    let mounted = true;
+
     const initializeMedia = async () => {
       try {
+        console.log('🎥 Requesting camera and microphone access...');
+        
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 1280, height: 720 },
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
@@ -38,24 +46,42 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
           }
         });
         
-        setLocalStream(stream);
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
+        console.log('✅ Media access granted:', {
+          videoTracks: stream.getVideoTracks().length,
+          audioTracks: stream.getAudioTracks().length
+        });
+
+        if (!mounted) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
         }
         
-        console.log('✅ Local media initialized');
+        setLocalStream(stream);
+        originalVideoTrackRef.current = stream.getVideoTracks()[0];
+        
+        // Set local video immediately
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+          console.log('✅ Local video element updated');
+        }
+        
       } catch (err) {
         console.error('❌ Error accessing media devices:', err);
-        setError('Unable to access camera/microphone. Please check permissions.');
+        setError(`Unable to access camera/microphone: ${err.message}`);
       }
     };
 
     initializeMedia();
 
     return () => {
-      // Cleanup on unmount
+      mounted = false;
+      console.log('🧹 Cleaning up media streams...');
+      
       if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
+        localStream.getTracks().forEach(track => {
+          track.stop();
+          console.log(`Stopped ${track.kind} track`);
+        });
       }
       if (screenStreamRef.current) {
         screenStreamRef.current.getTracks().forEach(track => track.stop());
@@ -66,15 +92,39 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
     };
   }, []);
 
+  // Update video element when localStream changes
+  useEffect(() => {
+    if (localStream && localVideoRef.current) {
+      localVideoRef.current.srcObject = localStream;
+      console.log('✅ Updated local video element with stream');
+    }
+  }, [localStream]);
+
+  // Update remote video element when remoteStream changes
+  useEffect(() => {
+    if (remoteStream && remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = remoteStream;
+      console.log('✅ Updated remote video element with stream');
+    }
+  }, [remoteStream]);
+
   // WebRTC signaling logic
   useEffect(() => {
-    if (!localStream) return;
+    if (!localStream) {
+      console.log('⏳ Waiting for local stream before setting up WebRTC...');
+      return;
+    }
 
+    let unsubscribeAnswer;
+    let unsubscribeOffer;
     const callRef = dbRef(rtdb, callRoomPath);
+    
+    console.log(`🔗 Setting up WebRTC for ${isDoctor ? 'DOCTOR' : 'PATIENT'}`);
     
     // Doctor initiates the call (creates offer)
     if (isDoctor) {
-      console.log('👨‍⚕️ Doctor initiating call...');
+      console.log('👨‍⚕️ Doctor creating peer connection...');
+      
       const peer = new SimplePeer({
         initiator: true,
         trickle: false,
@@ -83,37 +133,53 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' }
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' }
           ]
         }
       });
 
       peer.on('signal', (signal) => {
-        console.log('📡 Doctor sending signal...');
-        set(dbRef(rtdb, `${callRoomPath}/offer`), signal);
+        console.log('📡 Doctor sending offer signal to Firebase...');
+        set(dbRef(rtdb, `${callRoomPath}/offer`), signal)
+          .then(() => console.log('✅ Offer saved to Firebase'))
+          .catch(err => console.error('❌ Failed to save offer:', err));
       });
 
       peer.on('stream', (stream) => {
-        console.log('🎥 Doctor receiving patient stream');
+        console.log('🎥 Doctor receiving patient stream:', {
+          videoTracks: stream.getVideoTracks().length,
+          audioTracks: stream.getAudioTracks().length
+        });
         setRemoteStream(stream);
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = stream;
-        }
         setCallStatus('connected');
       });
 
+      peer.on('connect', () => {
+        console.log('✅ Doctor peer connection established');
+      });
+
       peer.on('error', (err) => {
-        console.error('❌ Peer error:', err);
-        setError('Connection error occurred');
+        console.error('❌ Doctor peer error:', err);
+        setError(`Connection error: ${err.message}`);
+      });
+
+      peer.on('close', () => {
+        console.log('🔌 Doctor peer connection closed');
       });
 
       // Listen for patient's answer
       const answerRef = dbRef(rtdb, `${callRoomPath}/answer`);
-      onValue(answerRef, (snapshot) => {
+      unsubscribeAnswer = onValue(answerRef, (snapshot) => {
         const answer = snapshot.val();
         if (answer && !peer.destroyed) {
           console.log('📨 Doctor received answer from patient');
-          peer.signal(answer);
+          try {
+            peer.signal(answer);
+          } catch (err) {
+            console.error('❌ Error signaling answer:', err);
+          }
         }
       });
 
@@ -121,11 +187,12 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
 
     } else {
       // Patient joins and creates answer
-      console.log('🧑‍🦱 Patient joining call...');
+      console.log('🧑‍🦱 Patient waiting for doctor offer...');
       
       const offerRef = dbRef(rtdb, `${callRoomPath}/offer`);
-      onValue(offerRef, (snapshot) => {
+      unsubscribeOffer = onValue(offerRef, (snapshot) => {
         const offer = snapshot.val();
+        
         if (offer && !peerRef.current) {
           console.log('📨 Patient received offer from doctor');
           
@@ -137,31 +204,48 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
               iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
               ]
             }
           });
 
           peer.on('signal', (signal) => {
-            console.log('📡 Patient sending answer...');
-            set(dbRef(rtdb, `${callRoomPath}/answer`), signal);
+            console.log('📡 Patient sending answer signal to Firebase...');
+            set(dbRef(rtdb, `${callRoomPath}/answer`), signal)
+              .then(() => console.log('✅ Answer saved to Firebase'))
+              .catch(err => console.error('❌ Failed to save answer:', err));
           });
 
           peer.on('stream', (stream) => {
-            console.log('🎥 Patient receiving doctor stream');
+            console.log('🎥 Patient receiving doctor stream:', {
+              videoTracks: stream.getVideoTracks().length,
+              audioTracks: stream.getAudioTracks().length
+            });
             setRemoteStream(stream);
-            if (remoteVideoRef.current) {
-              remoteVideoRef.current.srcObject = stream;
-            }
             setCallStatus('connected');
           });
 
-          peer.on('error', (err) => {
-            console.error('❌ Peer error:', err);
-            setError('Connection error occurred');
+          peer.on('connect', () => {
+            console.log('✅ Patient peer connection established');
           });
 
-          peer.signal(offer);
+          peer.on('error', (err) => {
+            console.error('❌ Patient peer error:', err);
+            setError(`Connection error: ${err.message}`);
+          });
+
+          peer.on('close', () => {
+            console.log('🔌 Patient peer connection closed');
+          });
+
+          try {
+            peer.signal(offer);
+          } catch (err) {
+            console.error('❌ Error signaling offer:', err);
+          }
+
           peerRef.current = peer;
         }
       });
@@ -169,18 +253,22 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
 
     // Monitor connection quality
     const qualityInterval = setInterval(() => {
-      if (peerRef.current) {
-        // Simple quality monitoring based on connection state
+      if (peerRef.current && !peerRef.current.destroyed) {
         setConnectionQuality(remoteStream ? 'good' : 'poor');
       }
     }, 3000);
 
     return () => {
+      console.log('🧹 Cleaning up WebRTC signaling...');
       clearInterval(qualityInterval);
-      // Clean up Firebase references when call ends
-      remove(callRef);
+      
+      if (unsubscribeAnswer) unsubscribeAnswer();
+      if (unsubscribeOffer) unsubscribeOffer();
+      
+      // Clean up Firebase references
+      remove(callRef).catch(err => console.error('Error removing call data:', err));
     };
-  }, [localStream, isDoctor, appointmentId]);
+  }, [localStream, isDoctor, appointmentId, callRoomPath]);
 
   const toggleVideo = () => {
     if (localStream) {
@@ -188,6 +276,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
         setIsVideoEnabled(videoTrack.enabled);
+        console.log(`📹 Video ${videoTrack.enabled ? 'enabled' : 'disabled'}`);
       }
     }
   };
@@ -198,14 +287,21 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         setIsAudioEnabled(audioTrack.enabled);
+        console.log(`🎤 Audio ${audioTrack.enabled ? 'enabled' : 'disabled'}`);
       }
     }
   };
 
   const toggleScreenShare = async () => {
+    if (!peerRef.current) {
+      setError('Cannot share screen: No active connection');
+      return;
+    }
+
     try {
       if (!isScreenSharing) {
-        // Start screen sharing
+        console.log('🖥️ Starting screen share...');
+        
         const screenStream = await navigator.mediaDevices.getDisplayMedia({
           video: { cursor: 'always' },
           audio: false
@@ -216,33 +312,44 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
         // Replace video track with screen track
         const screenTrack = screenStream.getVideoTracks()[0];
         const sender = peerRef.current._pc.getSenders().find(s => s.track?.kind === 'video');
+        
         if (sender) {
-          sender.replaceTrack(screenTrack);
+          await sender.replaceTrack(screenTrack);
+          console.log('✅ Screen track replaced');
         }
 
-        // Update local video
+        // Update local video display
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = screenStream;
         }
 
-        // Listen for screen share stop
+        // Listen for screen share stop (user clicks "Stop sharing" in browser)
         screenTrack.onended = () => {
-          toggleScreenShare(); // Stop screen sharing
+          console.log('🛑 Screen share stopped by user');
+          toggleScreenShare();
         };
 
         setIsScreenSharing(true);
+        
       } else {
-        // Stop screen sharing, return to camera
+        console.log('🛑 Stopping screen share...');
+        
+        // Stop screen sharing tracks
         if (screenStreamRef.current) {
           screenStreamRef.current.getTracks().forEach(track => track.stop());
+          screenStreamRef.current = null;
         }
 
-        const videoTrack = localStream.getVideoTracks()[0];
+        // Return to camera
+        const videoTrack = originalVideoTrackRef.current || localStream.getVideoTracks()[0];
         const sender = peerRef.current._pc.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) {
-          sender.replaceTrack(videoTrack);
+        
+        if (sender && videoTrack) {
+          await sender.replaceTrack(videoTrack);
+          console.log('✅ Camera track restored');
         }
 
+        // Update local video display
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = localStream;
         }
@@ -250,15 +357,21 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
         setIsScreenSharing(false);
       }
     } catch (err) {
-      console.error('Screen sharing error:', err);
-      setError('Unable to share screen');
+      console.error('❌ Screen sharing error:', err);
+      setError(`Unable to share screen: ${err.message}`);
+      setTimeout(() => setError(''), 5000);
     }
   };
 
   const endCall = () => {
+    console.log('📞 Ending call...');
+    
     // Stop all tracks
     if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
+      localStream.getTracks().forEach(track => {
+        track.stop();
+        console.log(`Stopped ${track.kind} track`);
+      });
     }
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach(track => track.stop());
@@ -267,10 +380,13 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
     // Destroy peer connection
     if (peerRef.current) {
       peerRef.current.destroy();
+      console.log('Peer connection destroyed');
     }
 
     // Clean up Firebase
-    remove(dbRef(rtdb, callRoomPath));
+    remove(dbRef(rtdb, callRoomPath))
+      .then(() => console.log('✅ Call data removed from Firebase'))
+      .catch(err => console.error('❌ Error removing call data:', err));
 
     setCallStatus('ended');
     onEndCall();
@@ -281,7 +397,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
       {/* Background Effects */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
       </div>
 
       {/* Main Content */}
@@ -305,7 +421,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
             <div className="text-white/70 text-sm">
               Appointment #{appointmentId.slice(-6)}
             </div>
-            {connectionQuality !== 'good' && (
+            {connectionQuality !== 'good' && callStatus === 'connected' && (
               <div className="text-yellow-400 text-sm">⚠️ Poor connection</div>
             )}
           </div>
@@ -313,8 +429,9 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
 
         {/* Error Display */}
         {error && (
-          <div className="mb-4 bg-red-500/20 border border-red-500 text-white p-4 rounded-xl">
-            ⚠️ {error}
+          <div className="mb-4 bg-red-500/20 border border-red-500 text-white p-4 rounded-xl flex items-center">
+            <span className="mr-2">⚠️</span>
+            <span>{error}</span>
           </div>
         )}
 
@@ -322,18 +439,24 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
           {/* Remote Video (Doctor/Patient) */}
           <div className="relative bg-gray-900/50 backdrop-blur-xl rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
-            {remoteStream ? (
-              <video
-                ref={remoteVideoRef}
-                autoPlay
-                playsInline
-                className="w-full h-full object-cover"
-              />
-            ) : (
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className="w-full h-full object-cover"
+              style={{ display: remoteStream ? 'block' : 'none' }}
+            />
+            
+            {!remoteStream && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
                   <Loader className="w-16 h-16 text-white/50 animate-spin mx-auto mb-4" />
-                  <p className="text-white/70">Waiting for {isDoctor ? 'patient' : 'doctor'} to join...</p>
+                  <p className="text-white/70 text-lg">
+                    Waiting for {isDoctor ? 'patient' : 'doctor'} to join...
+                  </p>
+                  <p className="text-white/50 text-sm mt-2">
+                    Make sure they've clicked "Start Video Call"
+                  </p>
                 </div>
               </div>
             )}
@@ -348,26 +471,30 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
 
           {/* Local Video (You) */}
           <div className="relative bg-gray-900/50 backdrop-blur-xl rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
-            {localStream ? (
-              <video
-                ref={localVideoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Loader className="w-16 h-16 text-white/50 animate-spin" />
-              </div>
-            )}
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+              style={{ display: localStream && isVideoEnabled ? 'block' : 'none' }}
+            />
 
             {/* Video off overlay */}
-            {!isVideoEnabled && (
+            {(!localStream || !isVideoEnabled) && (
               <div className="absolute inset-0 bg-gray-900 flex items-center justify-center">
                 <div className="text-center">
-                  <VideoOff className="w-16 h-16 text-white/50 mx-auto mb-2" />
-                  <p className="text-white/70">Camera Off</p>
+                  {!localStream ? (
+                    <>
+                      <Loader className="w-16 h-16 text-white/50 animate-spin mx-auto mb-2" />
+                      <p className="text-white/70">Initializing camera...</p>
+                    </>
+                  ) : (
+                    <>
+                      <VideoOff className="w-16 h-16 text-white/50 mx-auto mb-2" />
+                      <p className="text-white/70">Camera Off</p>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -395,7 +522,8 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
             {/* Toggle Video */}
             <button
               onClick={toggleVideo}
-              className={`p-4 rounded-full transition-all duration-300 transform hover:scale-110 ${
+              disabled={!localStream}
+              className={`p-4 rounded-full transition-all duration-300 transform hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed ${
                 isVideoEnabled 
                   ? 'bg-blue-600 hover:bg-blue-700' 
                   : 'bg-red-600 hover:bg-red-700'
@@ -412,7 +540,8 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
             {/* Toggle Audio */}
             <button
               onClick={toggleAudio}
-              className={`p-4 rounded-full transition-all duration-300 transform hover:scale-110 ${
+              disabled={!localStream}
+              className={`p-4 rounded-full transition-all duration-300 transform hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed ${
                 isAudioEnabled 
                   ? 'bg-blue-600 hover:bg-blue-700' 
                   : 'bg-red-600 hover:bg-red-700'
@@ -430,7 +559,8 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
             {isDoctor && (
               <button
                 onClick={toggleScreenShare}
-                className={`p-4 rounded-full transition-all duration-300 transform hover:scale-110 ${
+                disabled={!localStream || !peerRef.current}
+                className={`p-4 rounded-full transition-all duration-300 transform hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed ${
                   isScreenSharing 
                     ? 'bg-green-600 hover:bg-green-700' 
                     : 'bg-gray-600 hover:bg-gray-700'
