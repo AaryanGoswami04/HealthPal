@@ -6,6 +6,7 @@ import {
 import SimplePeer from 'simple-peer';
 import { ref as dbRef, onValue, set, remove } from 'firebase/database';
 import { rtdb } from '../firebase';
+import 'webrtc-adapter';
 
 const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
   const [localStream, setLocalStream] = useState(null);
