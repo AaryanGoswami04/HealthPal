@@ -37,17 +37,14 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
       const uniquePeerId = `${isDoctor ? 'doctor' : 'patient'}-${appointmentId}-${Date.now()}`;
       
       const peer = new Peer(uniquePeerId, {
-        host: 'peerjs-server.herokuapp.com',
-        secure: true,
-        port: 443,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' }
-          ]
-        }
-      });
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' }
+    ]
+  }
+});
 
       peer.on('open', (id) => {
         console.log('✅ PeerJS connected with ID:', id);
