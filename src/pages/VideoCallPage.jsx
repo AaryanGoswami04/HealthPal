@@ -408,11 +408,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 via-teal-600 to-emerald-600 bg-clip-text text-transparent">
                   Video Consultation
                 </h1>
-                <span className="text-gray-600 text-sm">
-                  {callStatus === 'connected' ? '🟢 Connected' : 
-                   callStatus === 'connecting' ? '🟡 Connecting...' : 
-                   '🔴 Call Ended'}
-                </span>
+              
               </div>
             </div>
 
@@ -519,7 +515,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
         </div>
 
         {/* Control Bar */}
-        <div className="bg-white/80 backdrop-blur-xl rounded-2xl border border-white/20 shadow-xl p-6">
+        <div className="flex flex-col items-center space-y-4">
           <div className="flex items-center justify-center space-x-4">
             {/* Toggle Video */}
             <button
@@ -588,7 +584,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
           </div>
 
           {/* Call Info */}
-          <div className="mt-4 flex items-center justify-center space-x-6 text-gray-600 text-sm">
+          <div className="flex items-center justify-center space-x-6 text-gray-600 text-sm">
             <div className="flex items-center bg-blue-50 px-3 py-1 rounded-full">
               <Phone className="w-4 h-4 mr-2 text-blue-600" />
               <span>In Call</span>
