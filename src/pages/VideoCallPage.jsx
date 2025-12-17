@@ -24,6 +24,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
   const callInstance = useRef(null);
   const screenStreamRef = useRef(null);
   const originalVideoTrackRef = useRef(null);
+  const connectionAttempts = useRef(0);
 
   const isDoctor = userProfile?.role === 'doctor';
   const callRoomPath = `videoCalls/${appointmentId}`;
@@ -37,54 +38,78 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
       const uniquePeerId = `${isDoctor ? 'doctor' : 'patient'}-${appointmentId}-${Date.now()}`;
       
       const peer = new Peer(uniquePeerId, {
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' }
-    ]
-  }
-});
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' }
+          ]
+        },
+        debug: 2 // Enable debug logs
+      });
 
       peer.on('open', (id) => {
         console.log('✅ PeerJS connected with ID:', id);
         setPeerId(id);
         
         // Store peer ID in Firebase
-        set(dbRef(rtdb, `${callRoomPath}/${isDoctor ? 'doctorId' : 'patientId'}`), id)
-          .then(() => console.log('✅ Peer ID saved to Firebase'))
-          .catch(err => console.error('❌ Failed to save peer ID:', err));
+        const peerData = {
+          peerId: id,
+          ready: false, // Not ready until media stream is available
+          timestamp: Date.now()
+        };
+        
+        set(dbRef(rtdb, `${callRoomPath}/${isDoctor ? 'doctor' : 'patient'}`), peerData)
+          .then(() => console.log('✅ Peer data saved to Firebase'))
+          .catch(err => console.error('❌ Failed to save peer data:', err));
       });
 
       peer.on('error', (err) => {
         console.error('❌ PeerJS error:', err);
-        setError(`Connection error: ${err.message || err.type}`);
+        
+        // More detailed error handling
+        if (err.type === 'peer-unavailable') {
+          setError('The other participant is not available. They may have disconnected or not joined yet.');
+        } else if (err.type === 'network') {
+          setError('Network error. Please check your internet connection.');
+        } else if (err.type === 'server-error') {
+          setError('Server connection error. Please refresh and try again.');
+        } else {
+          setError(`Connection error: ${err.message || err.type}`);
+        }
       });
 
-      // Listen for incoming calls (patient side)
+      // Listen for incoming calls (both doctor and patient can receive)
       peer.on('call', (call) => {
-        console.log('📞 Receiving call...');
+        console.log('📞 Receiving incoming call...');
         
-        if (localStream) {
-          call.answer(localStream);
-          callInstance.current = call;
-          
-          call.on('stream', (remoteStream) => {
-            console.log('🎥 Received remote stream');
-            setRemoteStream(remoteStream);
-            setCallStatus('connected');
-          });
-
-          call.on('close', () => {
-            console.log('📞 Call closed');
-            setCallStatus('ended');
-          });
-
-          call.on('error', (err) => {
-            console.error('❌ Call error:', err);
-            setError(`Call error: ${err.message}`);
-          });
+        if (!localStream) {
+          console.warn('⚠️ Received call but local stream not ready yet');
+          return;
         }
+        
+        console.log('✅ Answering call with local stream');
+        call.answer(localStream);
+        callInstance.current = call;
+        
+        call.on('stream', (remoteStream) => {
+          console.log('🎥 Received remote stream from caller');
+          setRemoteStream(remoteStream);
+          setCallStatus('connected');
+          connectionAttempts.current = 0; // Reset attempts on success
+        });
+
+        call.on('close', () => {
+          console.log('📞 Call closed by remote peer');
+          setCallStatus('ended');
+        });
+
+        call.on('error', (err) => {
+          console.error('❌ Call error:', err);
+          setError(`Call error: ${err.message}`);
+        });
       });
 
       peerInstance.current = peer;
@@ -138,6 +163,19 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
           localVideoRef.current.srcObject = stream;
         }
         
+        // Mark as ready in Firebase once media is available
+        if (peerId) {
+          const peerData = {
+            peerId: peerId,
+            ready: true,
+            timestamp: Date.now()
+          };
+          
+          set(dbRef(rtdb, `${callRoomPath}/${isDoctor ? 'doctor' : 'patient'}`), peerData)
+            .then(() => console.log('✅ Marked as ready in Firebase'))
+            .catch(err => console.error('❌ Failed to update ready status:', err));
+        }
+        
       } catch (err) {
         console.error('❌ Error accessing media devices:', err);
         setError(`Unable to access camera/microphone: ${err.message}`);
@@ -155,44 +193,136 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
         screenStreamRef.current.getTracks().forEach(track => track.stop());
       }
     };
-  }, []);
+  }, [peerId]);
 
-  // Doctor initiates call when both peer IDs are available
+  // Update ready status when local stream becomes available
+  useEffect(() => {
+    if (localStream && peerId) {
+      const peerData = {
+        peerId: peerId,
+        ready: true,
+        timestamp: Date.now()
+      };
+      
+      set(dbRef(rtdb, `${callRoomPath}/${isDoctor ? 'doctor' : 'patient'}`), peerData)
+        .then(() => console.log('✅ Updated ready status with stream'))
+        .catch(err => console.error('❌ Failed to update ready status:', err));
+    }
+  }, [localStream, peerId, callRoomPath, isDoctor]);
+
+  // Doctor initiates call when patient is ready
   useEffect(() => {
     if (!isDoctor || !peerId || !localStream) return;
 
-    console.log('👨‍⚕️ Doctor waiting for patient...');
+    console.log('👨‍⚕️ Doctor waiting for patient to be ready...');
 
-    const patientIdRef = dbRef(rtdb, `${callRoomPath}/patientId`);
-    const unsubscribe = onValue(patientIdRef, (snapshot) => {
-      const patientPeerId = snapshot.val();
+    const patientRef = dbRef(rtdb, `${callRoomPath}/patient`);
+    const unsubscribe = onValue(patientRef, (snapshot) => {
+      const patientData = snapshot.val();
       
-      if (patientPeerId && peerInstance.current && !callInstance.current) {
-        console.log('📞 Calling patient:', patientPeerId);
-        
-        try {
-          const call = peerInstance.current.call(patientPeerId, localStream);
-          callInstance.current = call;
+      if (!patientData) {
+        console.log('⏳ Patient has not joined yet');
+        return;
+      }
+      
+      console.log('📋 Patient data:', patientData);
+      
+      // Only call if patient is ready and we haven't already initiated a call
+      if (patientData.ready && patientData.peerId && peerInstance.current && !callInstance.current) {
+        // Small delay to ensure patient's peer is fully ready
+        setTimeout(() => {
+          if (!callInstance.current) { // Double check we haven't called yet
+            initiateCall(patientData.peerId);
+          }
+        }, 1000);
+      } else if (!patientData.ready) {
+        console.log('⏳ Patient joined but not ready yet (waiting for camera/mic)');
+      }
+    });
 
-          call.on('stream', (remoteStream) => {
-            console.log('🎥 Doctor received patient stream');
-            setRemoteStream(remoteStream);
-            setCallStatus('connected');
-          });
+    return () => unsubscribe();
+  }, [isDoctor, peerId, localStream, callRoomPath]);
 
-          call.on('close', () => {
-            console.log('📞 Call closed');
-            setCallStatus('ended');
-          });
+  // Function to initiate call with retry logic
+  const initiateCall = (targetPeerId) => {
+    if (connectionAttempts.current >= 3) {
+      setError('Failed to connect after multiple attempts. Please refresh and try again.');
+      return;
+    }
+    
+    connectionAttempts.current++;
+    console.log(`📞 Attempting to call patient: ${targetPeerId} (attempt ${connectionAttempts.current})`);
+    
+    try {
+      const call = peerInstance.current.call(targetPeerId, localStream);
+      
+      if (!call) {
+        console.error('❌ Failed to create call object');
+        setTimeout(() => initiateCall(targetPeerId), 2000);
+        return;
+      }
+      
+      callInstance.current = call;
 
-          call.on('error', (err) => {
-            console.error('❌ Call error:', err);
-            setError(`Call error: ${err.message}`);
-          });
-        } catch (err) {
-          console.error('❌ Failed to initiate call:', err);
-          setError(`Failed to start call: ${err.message}`);
+      // Timeout if no stream received in 10 seconds
+      const streamTimeout = setTimeout(() => {
+        if (!remoteStream) {
+          console.warn('⚠️ No stream received, retrying...');
+          callInstance.current = null;
+          initiateCall(targetPeerId);
         }
+      }, 10000);
+
+      call.on('stream', (remoteStream) => {
+        clearTimeout(streamTimeout);
+        console.log('🎥 Doctor received patient stream');
+        setRemoteStream(remoteStream);
+        setCallStatus('connected');
+        connectionAttempts.current = 0; // Reset on success
+      });
+
+      call.on('close', () => {
+        clearTimeout(streamTimeout);
+        console.log('📞 Call closed');
+        setCallStatus('ended');
+      });
+
+      call.on('error', (err) => {
+        clearTimeout(streamTimeout);
+        console.error('❌ Call error:', err);
+        
+        if (err.type === 'peer-unavailable') {
+          console.log('🔄 Peer unavailable, retrying in 2 seconds...');
+          callInstance.current = null;
+          setTimeout(() => initiateCall(targetPeerId), 2000);
+        } else {
+          setError(`Call error: ${err.message}`);
+        }
+      });
+    } catch (err) {
+      console.error('❌ Failed to initiate call:', err);
+      callInstance.current = null;
+      
+      if (connectionAttempts.current < 3) {
+        setTimeout(() => initiateCall(targetPeerId), 2000);
+      } else {
+        setError(`Failed to start call: ${err.message}`);
+      }
+    }
+  };
+
+  // Patient waits for doctor to be ready (for potential patient-initiated calls)
+  useEffect(() => {
+    if (isDoctor || !peerId || !localStream) return;
+
+    console.log('🧑‍🦱 Patient is ready and waiting for doctor...');
+
+    const doctorRef = dbRef(rtdb, `${callRoomPath}/doctor`);
+    const unsubscribe = onValue(doctorRef, (snapshot) => {
+      const doctorData = snapshot.val();
+      
+      if (doctorData) {
+        console.log('👨‍⚕️ Doctor status:', doctorData);
       }
     });
 
@@ -391,6 +521,9 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
                   <Loader className="w-16 h-16 text-blue-600 animate-spin mx-auto mb-4" />
                   <p className="text-gray-700 text-lg font-semibold">
                     Waiting for {isDoctor ? 'patient' : 'doctor'} to join...
+                  </p>
+                  <p className="text-gray-500 text-sm mt-2">
+                    Connection attempts: {connectionAttempts.current}
                   </p>
                 </div>
               </div>
