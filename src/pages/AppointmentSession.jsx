@@ -18,9 +18,7 @@ import VideoCallPage from './VideoCallPage';
 import { getPatientHealthRecord, createNewHealthRecord, notarizeHealthRecordOnChain } from '../services/healthRecordService';
 import PaymentModal from './PaymentModal';
 
-// Add these state variables after your other useState declarations
-const [showPaymentModal, setShowPaymentModal] = useState(false);
-const [paymentVerified, setPaymentVerified] = useState(false);
+
 const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const [appointment, setAppointment] = useState(null);
   const [healthRecord, setHealthRecord] = useState(null);
@@ -29,6 +27,9 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const [saveMessage, setSaveMessage] = useState('');
   const [authChecked, setAuthChecked] = useState(false);
   const [isInVideoCall, setIsInVideoCall] = useState(false);
+  // Add these state variables after your other useState declarations
+const [showPaymentModal, setShowPaymentModal] = useState(false);
+const [paymentVerified, setPaymentVerified] = useState(false);
   // Doctor's medical update forms
   const [newAllergy, setNewAllergy] = useState({ name: '', severity: '', reaction: '' });
   const [newMedication, setNewMedication] = useState({ name: '', dosage: '', frequency: '', instructions: '' });
