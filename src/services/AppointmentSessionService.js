@@ -143,3 +143,20 @@ export const updatePatientMedicalInfoInSession = async (patientId, medicalUpdate
     throw error;
   }
 };
+
+export const storePaymentTransaction = async (appointmentId, paymentHash, paymentDetails) => {
+  try {
+    const appointmentRef = doc(db, "appointments", appointmentId);
+    await updateDoc(appointmentRef, {
+      paymentTransactionHash: paymentHash,
+      paymentDetails: paymentDetails,
+      paymentVerified: true,
+      paidAt: new Date(),
+      updatedAt: new Date()
+    });
+    console.log(`Payment transaction hash ${paymentHash} stored for appointment ${appointmentId}`);
+  } catch (error) {
+    console.error("Error storing payment transaction hash:", error);
+    throw error;
+  }
+};

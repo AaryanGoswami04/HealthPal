@@ -16,7 +16,11 @@ import {
 } from '../services/AppointmentSessionService';
 import VideoCallPage from './VideoCallPage';
 import { getPatientHealthRecord, createNewHealthRecord, notarizeHealthRecordOnChain } from '../services/healthRecordService';
+import PaymentModal from '../components/PaymentModal';
 
+// Add these state variables after your other useState declarations
+const [showPaymentModal, setShowPaymentModal] = useState(false);
+const [paymentVerified, setPaymentVerified] = useState(false);
 const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const [appointment, setAppointment] = useState(null);
   const [healthRecord, setHealthRecord] = useState(null);
@@ -39,6 +43,29 @@ const AppointmentSession = ({ userProfile, appointmentId, onEndSession }) => {
   const [notarizing, setNotarizing] = useState(false);
   const [notarizeMessage, setNotarizeMessage] = useState('');
   const isDoctor = userProfile?.role === 'doctor';
+
+    useEffect(() => {
+  if (!authChecked || !appointment || isDoctor) return;
+
+  // Check if patient has already paid
+  if (appointment.paymentVerified) {
+    setPaymentVerified(true);
+  } else {
+    // Show payment modal for patients who haven't paid
+    setShowPaymentModal(true);
+  }
+}, [appointment, authChecked, isDoctor]);
+
+const handlePaymentSuccess = (paymentResult) => {
+  console.log('✅ Payment successful:', paymentResult);
+  setPaymentVerified(true);
+  setShowPaymentModal(false);
+};
+
+const handlePaymentCancel = () => {
+  alert('Payment is required to access the appointment session.');
+  onEndSession();
+};
 
   // Authentication guard - Check auth FIRST before doing anything
   useEffect(() => {

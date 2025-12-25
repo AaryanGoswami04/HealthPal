@@ -625,7 +625,7 @@ const VideoCallPage = ({ userProfile, appointmentId, onEndCall }) => {
           <div className="flex items-center justify-center flex-wrap gap-4 text-gray-600 text-sm">
             <div className="flex items-center bg-blue-50 px-3 py-1 rounded-full">
               <Phone className="w-4 h-4 mr-2 text-blue-600" />
-              <span>In Call</span>
+              {/* <span>In Call</span> */}
             </div>
             {callStatus === 'connected' && (
               <div className="flex items-center">
