@@ -164,4 +164,4 @@ const PaymentModal = ({ appointmentId, onPaymentSuccess, onCancel }) => {
   );
 };
 
-export default PaymentModal
+export default PaymentModal;
