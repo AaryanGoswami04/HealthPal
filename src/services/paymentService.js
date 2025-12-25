@@ -41,7 +41,7 @@ export const initiatePayment = async (appointmentId) => {
     
     // Recipient address (you should replace this with your actual clinic/platform wallet)
     // For now, using a placeholder - REPLACE THIS WITH YOUR ACTUAL WALLET ADDRESS
-    const recipientAddress = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb'; // Example address
+    const recipientAddress = '0xe6443122dE4b68124eA1B1f433B54be0A15E45C0'; // Example address
     
     console.log('🔗 Initiating payment transaction...');
     console.log('From:', patientAddress);
