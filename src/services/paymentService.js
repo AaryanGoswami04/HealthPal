@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 
 /**
  * Initiates a payment transaction on Sepolia testnet
+ * @param {string} patientAddress - Patient's wallet address
  * @param {string} appointmentId - Appointment ID for reference
  * @returns {Object} Transaction hash and details
  */
@@ -30,47 +31,35 @@ export const initiatePayment = async (appointmentId) => {
           method: 'wallet_switchEthereumChain',
           params: [{ chainId: '0xaa36a7' }], // Sepolia chain ID in hex
         });
-        // Refresh provider after network switch
-        const newProvider = new ethers.BrowserProvider(window.ethereum);
-        const newSigner = await newProvider.getSigner();
-        return initiatePayment(appointmentId); // Retry with new network
       } catch (switchError) {
-        if (switchError.code === 4902) {
-          throw new Error('Sepolia testnet not found. Please add Sepolia network to MetaMask.');
-        }
         throw new Error('Please switch to Sepolia testnet in MetaMask');
       }
     }
 
-    // Check balance
-    const balance = await provider.getBalance(patientAddress);
+    // Payment amount: 0.001 ETH (you can adjust this)
     const paymentAmount = ethers.parseEther('0.001');
     
-    if (balance < paymentAmount) {
-      throw new Error('Insufficient ETH balance. Please add Sepolia ETH to your wallet from a faucet.');
-    }
-
-    // Recipient address - REPLACE THIS WITH YOUR ACTUAL CLINIC WALLET ADDRESS
-    const recipientAddress = '0xb61A12137bD296990A7E5e59372A1fA4BAD0134D';
+    // Recipient address (you should replace this with your actual clinic/platform wallet)
+    // For now, using a placeholder - REPLACE THIS WITH YOUR ACTUAL WALLET ADDRESS
+    const recipientAddress = '0xb61A12137bD296990A7E5e59372A1fA4BAD0134D'; // Example address
     
     console.log('🔗 Initiating payment transaction...');
     console.log('From:', patientAddress);
     console.log('To:', recipientAddress);
     console.log('Amount:', ethers.formatEther(paymentAmount), 'ETH');
-    console.log('Appointment ID:', appointmentId);
 
-    // Create transaction WITHOUT data field (EOA wallets don't accept data)
+    // Create transaction
     const tx = await signer.sendTransaction({
       to: recipientAddress,
       value: paymentAmount,
-      // Remove the data field to fix the error
+      data: ethers.hexlify(ethers.toUtf8Bytes(`Appointment:${appointmentId}`)) // Embed appointment ID in transaction data
     });
 
     console.log('⏳ Transaction sent. Waiting for confirmation...');
     console.log('Transaction hash:', tx.hash);
 
-    // Wait for transaction confirmation (1 confirmation)
-    const receipt = await tx.wait(1);
+    // Wait for transaction confirmation
+    const receipt = await tx.wait();
     
     console.log('✅ Payment confirmed!');
     console.log('Block number:', receipt.blockNumber);
@@ -83,7 +72,6 @@ export const initiatePayment = async (appointmentId) => {
       from: patientAddress,
       to: recipientAddress,
       amount: ethers.formatEther(paymentAmount),
-      appointmentId: appointmentId,
       timestamp: new Date().toISOString()
     };
 
@@ -91,12 +79,10 @@ export const initiatePayment = async (appointmentId) => {
     console.error('❌ Payment error:', error);
     
     // User-friendly error messages
-    if (error.code === 4001 || error.code === 'ACTION_REJECTED') {
+    if (error.code === 4001) {
       throw new Error('Payment cancelled by user');
-    } else if (error.message?.includes('insufficient funds') || error.code === 'INSUFFICIENT_FUNDS') {
-      throw new Error('Insufficient ETH balance. Please add Sepolia ETH to your wallet from a faucet.');
-    } else if (error.message?.includes('user rejected')) {
-      throw new Error('Transaction rejected by user');
+    } else if (error.message.includes('insufficient funds')) {
+      throw new Error('Insufficient ETH balance. Please add Sepolia ETH to your wallet.');
     } else {
       throw new Error(error.message || 'Payment failed. Please try again.');
     }
@@ -153,28 +139,6 @@ export const verifyPayment = async (txHash) => {
       verified: false,
       message: error.message || 'Verification failed'
     };
-  }
-};
-
-/**
- * Get current wallet balance on Sepolia
- * @returns {string} Balance in ETH
- */
-export const getWalletBalance = async () => {
-  try {
-    if (!window.ethereum) {
-      throw new Error('MetaMask is not installed');
-    }
-
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-    const address = await signer.getAddress();
-    const balance = await provider.getBalance(address);
-    
-    return ethers.formatEther(balance);
-  } catch (error) {
-    console.error('Error getting balance:', error);
-    throw error;
   }
 };
 
