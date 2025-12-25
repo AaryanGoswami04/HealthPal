@@ -1,129 +1,57 @@
-import { doc, getDoc, updateDoc, writeBatch } from "firebase/firestore";
-import { db } from '../firebase';
-import { updatePatientMedicalInfo } from './healthRecordService';
-
 /**
- * Fetches complete appointment details including patient info
+ * Stores payment transaction details for an appointment
  * @param {string} appointmentId - The appointment ID
- * @returns {Object|null} Complete appointment data or null if not found
+ * @param {string} txHash - Transaction hash
+ * @param {Object} paymentDetails - Additional payment details
+ * @returns {Promise} Promise that resolves when payment is stored
  */
-export const getAppointmentDetails = async (appointmentId) => {
-  try {
-    console.log("=== getAppointmentDetails Debug ===");
-    console.log("1. Appointment ID received:", appointmentId);
-    console.log("2. DB instance:", db);
-    
-    if (!appointmentId) {
-      console.error("3. ERROR: No appointment ID provided");
-      return null;
-    }
-    
-    console.log("4. Creating document reference...");
-    const appointmentRef = doc(db, "appointments", appointmentId);
-    console.log("5. Document reference created:", appointmentRef);
-    console.log("6. Document path:", appointmentRef.path);
-    
-    console.log("7. Attempting to fetch document...");
-    const appointmentSnap = await getDoc(appointmentRef);
-    console.log("8. Document snapshot received:", appointmentSnap);
-    console.log("9. Document exists:", appointmentSnap.exists());
-    
-    if (appointmentSnap.exists()) {
-      const appointmentData = appointmentSnap.data();
-      console.log("10. SUCCESS: Document data:", appointmentData);
-      return {
-        id: appointmentId,
-        ...appointmentData
-      };
-    } else {
-      console.log("11. ERROR: Document does not exist");
-      console.log("12. Document path checked:", `appointments/${appointmentId}`);
-      console.log("13. Snapshot metadata:", appointmentSnap.metadata);
-      return null;
-    }
-  } catch (error) {
-    console.error("14. CATCH ERROR in getAppointmentDetails:", error);
-    console.error("15. Error message:", error.message);
-    console.error("16. Error code:", error.code);
-    console.error("17. Full error:", error);
-    throw error;
-  }
-};
-
-/**
- * Updates appointment session status
- * @param {string} appointmentId - The appointment ID
- * @param {string} sessionStatus - New session status ('waiting', 'active', 'completed')
- * @returns {Promise} Promise that resolves when update is complete
- */
-export const updateAppointmentSessionStatus = async (appointmentId, sessionStatus) => {
+export const storePaymentTransaction = async (appointmentId, txHash, paymentDetails) => {
   try {
     const appointmentRef = doc(db, "appointments", appointmentId);
     await updateDoc(appointmentRef, {
-      sessionStatus: sessionStatus,
+      paymentVerified: true,
+      paymentTxHash: txHash,
+      paymentDetails: {
+        from: paymentDetails.from,
+        amount: paymentDetails.amount,
+        blockNumber: paymentDetails.blockNumber,
+        timestamp: paymentDetails.timestamp
+      },
+      paidAt: new Date(),
       updatedAt: new Date()
     });
-    console.log(`Appointment ${appointmentId} session status updated to: ${sessionStatus}`);
+    console.log(`Payment transaction ${txHash} stored for appointment ${appointmentId}`);
   } catch (error) {
-    console.error("Error updating appointment session status:", error);
+    console.error("Error storing payment transaction:", error);
     throw error;
   }
 };
 
 /**
- * Stores the blockchain transaction hash for an appointment
+ * Stores payment details for an appointment
  * @param {string} appointmentId - The appointment ID
- * @param {string} transactionHash - The blockchain transaction hash
- * @returns {Promise} Promise that resolves when hash is stored
+ * @param {Object} paymentDetails - Payment transaction details
+ * @returns {Promise} Promise that resolves when payment is stored
  */
-export const storeBlockchainTransactionHash = async (appointmentId, transactionHash) => {
+export const storePaymentDetails = async (appointmentId, paymentDetails) => {
   try {
     const appointmentRef = doc(db, "appointments", appointmentId);
     await updateDoc(appointmentRef, {
-      blockchainTransactionHash: transactionHash,
-      notarizedAt: new Date(),
-      isNotarized: true,
+      paymentCompleted: true,
+      paymentDetails: {
+        transactionHash: paymentDetails.transactionHash,
+        amount: paymentDetails.amount,
+        from: paymentDetails.from,
+        to: paymentDetails.to,
+        timestamp: paymentDetails.timestamp,
+        blockNumber: paymentDetails.blockNumber
+      },
+      paidAt: new Date(),
       updatedAt: new Date()
     });
-    console.log(`Blockchain transaction hash ${transactionHash} stored for appointment ${appointmentId}`);
+    console.log(`Payment details stored for appointment ${appointmentId}`);
   } catch (error) {
-    console.error("Error storing blockchain transaction hash:", error);
-    throw error;
-  }
-};
-
-/**
- * Completes an appointment session
- * @param {string} appointmentId - The appointment ID
- * @param {Object} sessionNotes - Optional notes about the session
- * @param {string} transactionHash - Optional blockchain transaction hash
- * @returns {Promise} Promise that resolves when appointment is completed
- */
-export const completeAppointmentSession = async (appointmentId, sessionNotes = null, transactionHash = null) => {
-  try {
-    const appointmentRef = doc(db, "appointments", appointmentId);
-    const updateData = {
-      status: 'completed',
-      sessionStatus: 'completed',
-      completedAt: new Date(),
-      updatedAt: new Date()
-    };
-    
-    if (sessionNotes) {
-      updateData.sessionNotes = sessionNotes;
-    }
-    
-    // Store blockchain transaction hash if provided
-    if (transactionHash) {
-      updateData.blockchainTransactionHash = transactionHash;
-      updateData.notarizedAt = new Date();
-      updateData.isNotarized = true;
-    }
-    
-    await updateDoc(appointmentRef, updateData);
-    console.log(`Appointment ${appointmentId} completed successfully`);
-  } catch (error) {
-    console.error("Error completing appointment session:", error);
+    console.error("Error storing payment details:", error);
     throw error;
   }
 };
@@ -140,23 +68,6 @@ export const updatePatientMedicalInfoInSession = async (patientId, medicalUpdate
     return await updatePatientMedicalInfo(patientId, medicalUpdates, doctorInfo);
   } catch (error) {
     console.error("Error updating patient medical info in session:", error);
-    throw error;
-  }
-};
-
-export const storePaymentTransaction = async (appointmentId, paymentHash, paymentDetails) => {
-  try {
-    const appointmentRef = doc(db, "appointments", appointmentId);
-    await updateDoc(appointmentRef, {
-      paymentTransactionHash: paymentHash,
-      paymentDetails: paymentDetails,
-      paymentVerified: true,
-      paidAt: new Date(),
-      updatedAt: new Date()
-    });
-    console.log(`Payment transaction hash ${paymentHash} stored for appointment ${appointmentId}`);
-  } catch (error) {
-    console.error("Error storing payment transaction hash:", error);
     throw error;
   }
 };

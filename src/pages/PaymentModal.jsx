@@ -129,25 +129,6 @@ const PaymentModal = ({ appointmentId, onPaymentSuccess, onCancel }) => {
               </button>
             </div>
 
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <p className="text-xs text-gray-500 text-center mb-3">
-                💡 Don't have Sepolia ETH? Get it free from:
-              </p>
-              <div className="grid grid-cols-1 gap-2">
-                {getFaucetLinks().map((faucet, index) => (
-                  <a
-                    key={index}
-                    href={faucet.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center text-blue-600 hover:text-blue-700 text-sm bg-blue-50 hover:bg-blue-100 rounded-lg py-2 px-3 transition-colors"
-                  >
-                    <ExternalLink className="w-4 h-4 mr-2" />
-                    {faucet.name}
-                  </a>
-                ))}
-              </div>
-            </div>
           </>
         ) : (
           <div className="text-center">
