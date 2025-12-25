@@ -2,7 +2,6 @@ import { ethers } from 'ethers';
 
 /**
  * Initiates a payment transaction on Sepolia testnet
- * @param {string} patientAddress - Patient's wallet address
  * @param {string} appointmentId - Appointment ID for reference
  * @returns {Object} Transaction hash and details
  */
@@ -31,35 +30,42 @@ export const initiatePayment = async (appointmentId) => {
           method: 'wallet_switchEthereumChain',
           params: [{ chainId: '0xaa36a7' }], // Sepolia chain ID in hex
         });
+        
+        // Retry after network switch
+        return await initiatePayment(appointmentId);
       } catch (switchError) {
+        if (switchError.code === 4902) {
+          throw new Error('Sepolia testnet not found in MetaMask. Please add it manually.');
+        }
         throw new Error('Please switch to Sepolia testnet in MetaMask');
       }
     }
 
-    // Payment amount: 0.001 ETH (you can adjust this)
+    // Payment amount: 0.001 ETH
     const paymentAmount = ethers.parseEther('0.001');
     
-    // Recipient address (you should replace this with your actual clinic/platform wallet)
-    // For now, using a placeholder - REPLACE THIS WITH YOUR ACTUAL WALLET ADDRESS
-    const recipientAddress = '0xb61A12137bD296990A7E5e59372A1fA4BAD0134D'; // Example address
+    // REPLACE WITH YOUR CLINIC'S RECEIVING WALLET ADDRESS
+    const recipientAddress = '0xb61A12137bD296990A7E5e59372A1fA4BAD0134D';
     
     console.log('🔗 Initiating payment transaction...');
     console.log('From:', patientAddress);
     console.log('To:', recipientAddress);
     console.log('Amount:', ethers.formatEther(paymentAmount), 'ETH');
+    console.log('Appointment ID:', appointmentId);
 
-    // Create transaction
+    // Simple transaction WITHOUT data field
+    // The appointment ID will be linked in Firebase, not on-chain
     const tx = await signer.sendTransaction({
       to: recipientAddress,
-      value: paymentAmount,
-      data: ethers.hexlify(ethers.toUtf8Bytes(`Appointment:${appointmentId}`)) // Embed appointment ID in transaction data
+      value: paymentAmount
+      // NO data field - this avoids the MetaMask internal account error
     });
 
     console.log('⏳ Transaction sent. Waiting for confirmation...');
     console.log('Transaction hash:', tx.hash);
 
-    // Wait for transaction confirmation
-    const receipt = await tx.wait();
+    // Wait for transaction confirmation (1 block)
+    const receipt = await tx.wait(1);
     
     console.log('✅ Payment confirmed!');
     console.log('Block number:', receipt.blockNumber);
@@ -72,7 +78,8 @@ export const initiatePayment = async (appointmentId) => {
       from: patientAddress,
       to: recipientAddress,
       amount: ethers.formatEther(paymentAmount),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      appointmentId: appointmentId // Return this for Firebase storage
     };
 
   } catch (error) {
@@ -81,10 +88,16 @@ export const initiatePayment = async (appointmentId) => {
     // User-friendly error messages
     if (error.code === 4001) {
       throw new Error('Payment cancelled by user');
-    } else if (error.message.includes('insufficient funds')) {
+    } else if (error.code === 'INSUFFICIENT_FUNDS' || error.message.includes('insufficient funds')) {
       throw new Error('Insufficient ETH balance. Please add Sepolia ETH to your wallet.');
+    } else if (error.code === 'NETWORK_ERROR') {
+      throw new Error('Network error. Please check your connection and try again.');
+    } else if (error.message.includes('user rejected')) {
+      throw new Error('Transaction rejected by user');
+    } else if (error.message.includes('cannot include data')) {
+      throw new Error('Transaction with data not supported. Using simple payment instead.');
     } else {
-      throw new Error(error.message || 'Payment failed. Please try again.');
+      throw new Error(error.shortMessage || error.message || 'Payment failed. Please try again.');
     }
   }
 };
