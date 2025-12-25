@@ -16,7 +16,7 @@ import {
 } from '../services/AppointmentSessionService';
 import VideoCallPage from './VideoCallPage';
 import { getPatientHealthRecord, createNewHealthRecord, notarizeHealthRecordOnChain } from '../services/healthRecordService';
-import PaymentModal from '../components/PaymentModal';
+import PaymentModal from './PaymentModal';
 
 // Add these state variables after your other useState declarations
 const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -957,6 +957,13 @@ const handleEndVideoCall = () => {
           </div>
         </div>
       </div>
+      {showPaymentModal && !isDoctor && (
+        <PaymentModal
+          appointmentId={appointmentId}
+          onPaymentSuccess={handlePaymentSuccess}
+          onCancel={handlePaymentCancel}
+        />
+      )}
     </div>
   );
 };
