@@ -64,8 +64,10 @@ const handlePaymentSuccess = (paymentResult) => {
 };
 
 const handlePaymentCancel = () => {
-  alert('Payment is required to access the appointment session.');
-  onEndSession();
+  // alert('Payment is required to access the appointment session.'); // Optional: keep or remove
+  // onEndSession(); // <--- This line caused the redirection. Commented out.
+  setShowPaymentModal(false); 
+  console.log("Payment modal closed. Patient remains on the session page.");
 };
 
   // Authentication guard - Check auth FIRST before doing anything
