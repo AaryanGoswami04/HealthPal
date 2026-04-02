@@ -120,7 +120,7 @@ const PaymentModal = ({ appointmentId, onPaymentSuccess, onCancel }) => {
                 )}
               </button>
 
-              {/* <button
+              <button
                 onClick={() => {
                   // Temporarily calling success handler to stay in the session
                   onPaymentSuccess({ status: 'bypassed' });
@@ -129,7 +129,7 @@ const PaymentModal = ({ appointmentId, onPaymentSuccess, onCancel }) => {
                 className="w-full py-3 px-6 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition-all duration-300 disabled:opacity-50"
               >
                 Continue without Payment
-              </button> */}
+              </button>
             </div>
 
           </>
