@@ -9,10 +9,8 @@ contract HealthRecordLedger {
         uint256 timestamp;
     }
 
-    // Maps a patient's ID (e.g., their Firebase UID) to an array of their record updates
     mapping(string => RecordUpdate[]) public patientRecords;
 
-    // Event to announce that a new record was added
     event RecordUpdated(string indexed patientId, string recordHash, uint256 timestamp);
 
     /**
@@ -27,9 +25,6 @@ contract HealthRecordLedger {
         emit RecordUpdated(_patientId, _recordHash, block.timestamp);
     }
 
-    /**
-     * @dev Gets the latest health record hash for a patient.
-     */
     function getLatestRecordHash(string memory _patientId) public view returns (RecordUpdate memory) {
         uint256 recordCount = patientRecords[_patientId].length;
         require(recordCount > 0, "No records found for this patient.");
