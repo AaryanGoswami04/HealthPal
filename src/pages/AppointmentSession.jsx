@@ -460,7 +460,7 @@ const handleEndVideoCall = () => {
   <div className="flex items-center justify-end space-x-3 flex-wrap gap-y-3">
 
     {/* VIDEO CALL BUTTON - Now shows for BOTH doctor and patient when active */}
-    {/* {appointment.sessionStatus === 'active' && (
+    {appointment.sessionStatus === 'active' && (
       <button
         onClick={handleJoinVideoCall}
         className="py-3 px-6 rounded-xl text-white font-semibold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 transform hover:scale-105 transition-all duration-300 shadow-lg flex items-center justify-center"
@@ -468,7 +468,7 @@ const handleEndVideoCall = () => {
         <Video className="w-5 h-5 mr-2" />
         Join Video Call
       </button>
-    )} */}
+    )}
 
     {/* If session is NOT active, show why */}
     {appointment.sessionStatus !== 'active' && (
